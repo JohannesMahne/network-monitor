@@ -45,6 +45,28 @@ A lightweight menu bar application that monitors network traffic, tracks daily u
 
 ## Installation
 
+### Option 1: Build as macOS App (Recommended)
+
+Build a standalone application that you can launch from the Applications folder:
+
+```bash
+cd network-monitor
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+pip install py2app
+
+# Build the app
+python setup.py py2app
+
+# Copy to Applications
+cp -R "dist/Network Monitor.app" /Applications/
+```
+
+Then launch **Network Monitor** from your Applications folder or Spotlight.
+
+### Option 2: Run from Source
+
 1. **Clone or download this folder**
 
 2. **Create virtual environment and install dependencies**:
@@ -178,6 +200,7 @@ Export data via **Actions → Export Data**:
 ```
 network-monitor/
 ├── network_monitor.py      # Main application entry point
+├── setup.py                # py2app build configuration
 ├── app/                    # Application architecture
 │   ├── __init__.py
 │   ├── events.py           # Event bus for pub/sub communication
@@ -186,6 +209,8 @@ network-monitor/
 │   └── views/
 │       ├── icons.py        # Icon and sparkline generation
 │       └── menu_builder.py # Menu construction helpers
+├── assets/                 # Application resources
+│   └── NetworkMonitor.icns # App icon
 ├── config/                 # Configuration module
 │   ├── __init__.py
 │   ├── constants.py        # Centralized configuration values
@@ -200,6 +225,8 @@ network-monitor/
 │   ├── scanner.py          # Network device discovery
 │   ├── traffic.py          # Traffic breakdown by process
 │   └── utils.py            # Shared utility functions
+├── scripts/                # Build and utility scripts
+│   └── create_icon.py      # Generate app icon
 ├── storage/                # Data persistence
 │   ├── __init__.py
 │   ├── sqlite_store.py     # SQLite storage (v1.2+)
