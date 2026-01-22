@@ -73,7 +73,7 @@ class MenuBuilder:
         
         # Dynamic submenus
         self._menu_items['devices'] = rumps.MenuItem("Devices")
-        self._menu_items['apps'] = rumps.MenuItem("Apps")
+        self._menu_items['apps'] = rumps.MenuItem("Connections")
         self._menu_items['events'] = rumps.MenuItem("Recent Events")
         
         # History submenu

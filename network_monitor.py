@@ -220,7 +220,7 @@ class NetworkMonitorApp(rumps.App):
         self.menu_devices = rumps.MenuItem("Devices")
         
         # === TOP APPS (dynamically populated) ===
-        self.menu_apps = rumps.MenuItem("Apps")
+        self.menu_apps = rumps.MenuItem("Connections")
         
         # === HISTORY SUBMENU ===
         self.menu_history = rumps.MenuItem("History")
@@ -1087,11 +1087,11 @@ class NetworkMonitorApp(rumps.App):
             self._safe_menu_clear(self.menu_apps)
             
             if not top_processes:
-                self.menu_apps.title = "Apps"
+                self.menu_apps.title = "Connections"
                 self.menu_apps.add(rumps.MenuItem("No active apps"))
                 return
             
-            self.menu_apps.title = f"Apps ({len(top_processes)})"
+            self.menu_apps.title = f"Connections ({len(top_processes)})"
             
             # Add top 5 directly
             for i, (name, bytes_in, bytes_out, conns) in enumerate(top_processes[:5]):
