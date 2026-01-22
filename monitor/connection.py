@@ -20,6 +20,8 @@ class ConnectionInfo:
     interface: str  # e.g., "en0", "en1"
     is_connected: bool
     ip_address: Optional[str] = None
+    vpn_active: bool = False
+    vpn_name: Optional[str] = None
 
 
 class ConnectionDetector:
@@ -283,3 +285,116 @@ class ConnectionDetector:
         if not conn.is_connected:
             return "Disconnected"
         return f"{conn.connection_type}:{conn.name}"
+    
+    # === VPN Detection ===
+    
+    # Known VPN interface prefixes
+    VPN_INTERFACE_PREFIXES = ('utun', 'tun', 'tap', 'ppp', 'ipsec', 'gif')
+    
+    # Known VPN process names (partial matches)
+    VPN_PROCESS_NAMES = (
+        'openvpn', 'wireguard', 'nordvpn', 'expressvpn', 'surfshark',
+        'protonvpn', 'mullvad', 'privateinternetaccess', 'pia', 'tunnelblick',
+        'viscosity', 'cisco', 'anyconnect', 'globalprotect', 'forticlient',
+        'pulse', 'f5', 'zscaler', 'netskope', 'cloudflare', 'warp'
+    )
+    
+    def detect_vpn(self) -> tuple:
+        """Detect if a VPN connection is active.
+        
+        Returns:
+            Tuple of (vpn_active: bool, vpn_name: Optional[str])
+        """
+        # Method 1: Check for VPN-related network interfaces
+        vpn_interface = self._check_vpn_interfaces()
+        if vpn_interface:
+            return True, vpn_interface
+        
+        # Method 2: Check for running VPN processes
+        vpn_process = self._check_vpn_processes()
+        if vpn_process:
+            return True, vpn_process
+        
+        # Method 3: Check for VPN configuration in network services
+        vpn_service = self._check_vpn_services()
+        if vpn_service:
+            return True, vpn_service
+        
+        return False, None
+    
+    def _check_vpn_interfaces(self) -> Optional[str]:
+        """Check for active VPN network interfaces."""
+        try:
+            stats = psutil.net_if_stats()
+            addrs = psutil.net_if_addrs()
+            
+            for iface_name, iface_stats in stats.items():
+                # Check if interface is up and matches VPN patterns
+                if iface_stats.isup:
+                    for prefix in self.VPN_INTERFACE_PREFIXES:
+                        if iface_name.lower().startswith(prefix):
+                            # Verify it has an IP address assigned
+                            if iface_name in addrs:
+                                for addr in addrs[iface_name]:
+                                    if addr.family.name == 'AF_INET':
+                                        return f"VPN ({iface_name})"
+        except Exception as e:
+            logger.debug(f"VPN interface check error: {e}")
+        return None
+    
+    def _check_vpn_processes(self) -> Optional[str]:
+        """Check for running VPN processes."""
+        try:
+            for proc in psutil.process_iter(['name']):
+                try:
+                    proc_name = proc.info['name'].lower()
+                    for vpn_name in self.VPN_PROCESS_NAMES:
+                        if vpn_name in proc_name:
+                            # Return a cleaned up name
+                            return proc.info['name']
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    continue
+        except Exception as e:
+            logger.debug(f"VPN process check error: {e}")
+        return None
+    
+    def _check_vpn_services(self) -> Optional[str]:
+        """Check macOS network services for active VPN."""
+        try:
+            result = self._subprocess_cache.run(
+                ['networksetup', '-listnetworkserviceorder'],
+                ttl=30.0,
+                timeout=INTERVALS.SUBPROCESS_TIMEOUT_SECONDS
+            )
+            
+            if result.returncode == 0:
+                # Look for VPN-related services that are active
+                lines = result.stdout.split('\n')
+                for i, line in enumerate(lines):
+                    line_lower = line.lower()
+                    if 'vpn' in line_lower or 'ipsec' in line_lower or 'l2tp' in line_lower:
+                        # Extract service name
+                        match = re.search(r'\(\d+\)\s+(.+)', line)
+                        if match:
+                            service_name = match.group(1).strip()
+                            # Check if this service is connected
+                            if self._is_service_active(service_name):
+                                return service_name
+        except Exception as e:
+            logger.debug(f"VPN service check error: {e}")
+        return None
+    
+    def _is_service_active(self, service_name: str) -> bool:
+        """Check if a network service is currently active."""
+        try:
+            result = self._subprocess_cache.run(
+                ['networksetup', '-getinfo', service_name],
+                ttl=5.0,
+                timeout=INTERVALS.SUBPROCESS_TIMEOUT_SECONDS
+            )
+            if result.returncode == 0:
+                # If it has an IP address, it's active
+                return 'IP address:' in result.stdout and 'IP address: none' not in result.stdout.lower()
+        except Exception:
+            pass
+        return False

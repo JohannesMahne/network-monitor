@@ -19,6 +19,7 @@ class IssueType(Enum):
     HIGH_LATENCY = "high_latency"
     SPEED_DROP = "speed_drop"
     CONNECTION_CHANGE = "connection_change"
+    QUALITY_DROP = "quality_drop"
 
 
 @dataclass
@@ -65,6 +66,8 @@ class IssueDetector:
         self._last_latency_check: float = 0
         self._latency_check_interval = INTERVALS.LATENCY_CHECK_SECONDS * 3  # Less frequent for issue check
         self._average_speed: float = 0
+        self._last_quality_score: Optional[int] = None
+        self._quality_drop_cooldown: float = 0  # Prevent spamming
         logger.debug("IssueDetector initialized")
     
     def check_connectivity(self, is_connected: bool) -> Optional[NetworkIssue]:
@@ -149,6 +152,105 @@ class IssueDetector:
             return issue
         
         return None
+    
+    def check_quality_drop(self, current_score: Optional[int], 
+                           latency: Optional[float] = None,
+                           jitter: Optional[float] = None) -> Optional[NetworkIssue]:
+        """Check for significant quality score drops.
+        
+        Args:
+            current_score: Current quality score (0-100)
+            latency: Current latency in ms (for troubleshooting info)
+            jitter: Current jitter in ms (for troubleshooting info)
+        
+        Returns:
+            NetworkIssue if quality dropped significantly, None otherwise
+        """
+        if current_score is None:
+            return None
+        
+        current_time = time.time()
+        
+        # Cooldown to prevent spam (minimum 60 seconds between quality drop alerts)
+        if current_time - self._quality_drop_cooldown < 60:
+            self._last_quality_score = current_score
+            return None
+        
+        issue = None
+        
+        # Detect significant drop (20+ points) or crossing into "poor" territory
+        if self._last_quality_score is not None:
+            drop = self._last_quality_score - current_score
+            
+            # Alert if: dropped 20+ points OR dropped into poor (<40) from good (>60)
+            if drop >= 20 or (self._last_quality_score >= 60 and current_score < 40):
+                # Determine the likely cause
+                cause = self._diagnose_quality_drop(current_score, latency, jitter)
+                
+                issue = NetworkIssue(
+                    timestamp=datetime.now(),
+                    issue_type=IssueType.QUALITY_DROP,
+                    description=f"Quality dropped: {self._last_quality_score}% → {current_score}%",
+                    details={
+                        "previous_score": self._last_quality_score,
+                        "current_score": current_score,
+                        "drop_amount": drop,
+                        "latency_ms": latency,
+                        "jitter_ms": jitter,
+                        "likely_cause": cause,
+                        "troubleshooting": self._get_troubleshooting_tips(cause)
+                    }
+                )
+                self._add_issue(issue)
+                self._quality_drop_cooldown = current_time
+        
+        self._last_quality_score = current_score
+        return issue
+    
+    def _diagnose_quality_drop(self, score: int, latency: Optional[float], 
+                                jitter: Optional[float]) -> str:
+        """Diagnose the likely cause of a quality drop."""
+        if latency is not None and latency > 150:
+            return "high_latency"
+        elif jitter is not None and jitter > 30:
+            return "high_jitter"
+        elif score < 40:
+            return "poor_connection"
+        else:
+            return "network_congestion"
+    
+    def _get_troubleshooting_tips(self, cause: str) -> List[str]:
+        """Get troubleshooting tips based on the cause."""
+        tips = {
+            "high_latency": [
+                "Check if other devices are using bandwidth",
+                "Try moving closer to your WiFi router",
+                "Restart your router/modem",
+                "Check for background downloads or updates",
+                "Consider using a wired connection"
+            ],
+            "high_jitter": [
+                "Network connection is unstable",
+                "May indicate WiFi interference",
+                "Try changing WiFi channel",
+                "Check for microwave or other interference",
+                "Consider using 5GHz instead of 2.4GHz"
+            ],
+            "poor_connection": [
+                "Connection quality is degraded",
+                "Check signal strength",
+                "Restart network equipment",
+                "Contact your ISP if issue persists",
+                "Check for service outages in your area"
+            ],
+            "network_congestion": [
+                "Network may be congested",
+                "Too many devices or applications using bandwidth",
+                "Try limiting active connections",
+                "Schedule large downloads for off-peak hours"
+            ]
+        }
+        return tips.get(cause, ["Check your network connection"])
     
     def log_connection_change(self, old_conn: str, new_conn: str) -> NetworkIssue:
         """Log a connection change event."""

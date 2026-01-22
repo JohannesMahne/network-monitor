@@ -895,11 +895,11 @@ dependencies = [
 - [x] Add lazy device resolution (on-demand hostname resolution for visible devices)
 - [x] Optimize subprocess calls (caching for connection detection, tool checking)
 
-### Phase 4: Features (2-3 weeks)
-- [ ] Add budget notifications
-- [ ] Implement VPN detection
-- [ ] Add network quality score
-- [ ] Create data export functionality
+### Phase 4: Features (2-3 weeks) ✅ COMPLETED
+- [x] Add budget notifications (warning at threshold, alert when exceeded)
+- [x] Implement VPN detection (interface, process, and service detection)
+- [x] Add network quality score (0-100 based on latency, jitter, consistency)
+- [x] Create data export functionality (CSV and JSON export with file dialog)
 
 ### Phase 5: Storage (1-2 weeks)
 - [ ] Migrate to SQLite

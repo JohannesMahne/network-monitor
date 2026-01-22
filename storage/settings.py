@@ -24,6 +24,7 @@ class TitleDisplayMode(Enum):
     SESSION_DATA = "session"      # Session up/down (e.g., "↑12MB ↓45MB")
     SPEED = "speed"               # Current speed (e.g., "↑1.2KB/s ↓5.4KB/s")
     DEVICES = "devices"           # Device count (e.g., "17 devices")
+    QUALITY = "quality"           # Network quality score (e.g., "85/100")
 
 
 @dataclass
@@ -136,6 +137,7 @@ class SettingsManager:
             ("session", "Session Data (e.g., ↑12MB ↓45MB)"),
             ("speed", "Current Speed (e.g., ↑1.2KB/s)"),
             ("devices", "Device Count (e.g., 17 devices)"),
+            ("quality", "Quality Score (e.g., 85%)"),
         ]
     
     # === Latency Thresholds ===

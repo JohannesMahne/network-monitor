@@ -163,6 +163,20 @@ class NetworkMonitorApp(rumps.App):
         self._activity_samples: deque = deque(maxlen=INTERVALS.ACTIVITY_CHECK_SAMPLES)
         self._current_update_interval: float = INTERVALS.UPDATE_NORMAL_SECONDS
         
+        # Budget notification tracking (avoid repeated notifications)
+        self._budget_warning_notified: set = set()  # connection keys that got warning
+        self._budget_exceeded_notified: set = set()  # connection keys that got exceeded
+        
+        # VPN detection
+        self._vpn_active: bool = False
+        self._vpn_name: Optional[str] = None
+        self._last_vpn_check: float = 0
+        self._vpn_check_interval: float = 10.0  # Check every 10 seconds
+        
+        # Network quality score tracking
+        self._packet_loss_samples: deque = deque(maxlen=10)
+        self._quality_score: Optional[int] = None
+        
         # Track temp directories for cleanup
         self._temp_dirs = [
             Path(tempfile.gettempdir()) / STORAGE.ICON_TEMP_DIR,
@@ -196,6 +210,7 @@ class NetworkMonitorApp(rumps.App):
         self.menu_connection = rumps.MenuItem("Detecting")
         self.menu_speed = rumps.MenuItem("↑ --  ↓ --")
         self.menu_latency = rumps.MenuItem("Latency: --")
+        self.menu_quality = rumps.MenuItem("Quality: --")  # Network quality score
         self.menu_today = rumps.MenuItem("Today: ↑ --  ↓ --")
         
         # === BUDGET STATUS (shown when budget is set) ===
@@ -257,14 +272,21 @@ class NetworkMonitorApp(rumps.App):
         self.menu_reset_today = rumps.MenuItem("Reset Today", callback=self._reset_today)
         self.menu_data_location = rumps.MenuItem("Open Data Folder", callback=self._open_data_folder)
         
+        # Export submenu
+        self.menu_export = rumps.MenuItem("Export Data")
+        self.menu_export.add(rumps.MenuItem("Export as CSV...", callback=self._export_csv))
+        self.menu_export.add(rumps.MenuItem("Export as JSON...", callback=self._export_json))
+        
         self.menu_actions.add(self.menu_rescan)
         self.menu_actions.add(rumps.separator)
         self.menu_actions.add(self.menu_reset_session)
         self.menu_actions.add(self.menu_reset_today)
         self.menu_actions.add(rumps.separator)
+        self.menu_actions.add(self.menu_export)
         self.menu_actions.add(self.menu_data_location)
         
         # === BUILD MENU (standard macOS layout) ===
+        # Note: VPN status is added dynamically when VPN is detected
         self.menu = [
             self.menu_graph_upload,
             self.menu_graph_download,
@@ -273,6 +295,7 @@ class NetworkMonitorApp(rumps.App):
             self.menu_connection,
             self.menu_speed,
             self.menu_latency,
+            self.menu_quality,
             self.menu_today,
             self.menu_budget,
             rumps.separator,
@@ -552,6 +575,13 @@ class NetworkMonitorApp(rumps.App):
             online, total = self.network_scanner.get_device_count()
             self.title = f"{online} devices"
         
+        elif display_mode == "quality":
+            # Quality score mode
+            if self._quality_score is not None:
+                self.title = f"{self._quality_score}%"
+            else:
+                self.title = "--"
+        
         else:
             # Default to latency
             if self._current_latency is not None:
@@ -562,11 +592,17 @@ class NetworkMonitorApp(rumps.App):
     def _update_menu(self, conn: ConnectionInfo, stats, avg_up: float, avg_down: float,
                     peak_up: float, peak_down: float, session_sent: int, session_recv: int):
         """Update menu item text."""
-        # Connection info
+        # VPN status (check first so we can show in connection line)
+        self._update_vpn_status()
+        
+        # Connection info (with VPN indicator if active)
         if conn.is_connected:
-            name = conn.name[:25] if len(conn.name) <= 25 else conn.name[:22] + "..."
+            name = conn.name[:22] if len(conn.name) <= 22 else conn.name[:19] + "..."
             ip = conn.ip_address or ""
-            self.menu_connection.title = f"{name} ({ip})"
+            if self._vpn_active:
+                self.menu_connection.title = f"🔒 {name} ({ip})"
+            else:
+                self.menu_connection.title = f"{name} ({ip})"
         else:
             self.menu_connection.title = "Disconnected"
         
@@ -576,10 +612,13 @@ class NetworkMonitorApp(rumps.App):
         # Update latency display
         self._update_latency()
         
+        # Update network quality score
+        self._update_quality_score()
+        
         today_sent, today_recv = self.store.get_today_totals()
         self.menu_today.title = f"Today: ↑ {format_bytes(today_sent)}  ↓ {format_bytes(today_recv)}"
         
-        # Update budget status
+        # Update budget status (with notifications)
         self._update_budget(conn, today_sent, today_recv)
         
         # Update history section
@@ -800,6 +839,120 @@ class NetworkMonitorApp(rumps.App):
         except Exception as e:
             logger.error(f"Latency check error: {e}", exc_info=True)
     
+    def _update_vpn_status(self):
+        """Update VPN status detection.
+        
+        VPN status is shown inline with connection info.
+        """
+        import time as time_module
+        
+        current_time = time_module.time()
+        
+        # Only check VPN periodically
+        if current_time - self._last_vpn_check >= self._vpn_check_interval:
+            self._last_vpn_check = current_time
+            
+            vpn_active, vpn_name = self.connection_detector.detect_vpn()
+            self._vpn_active = vpn_active
+            self._vpn_name = vpn_name if vpn_active else None
+    
+    def _update_quality_score(self):
+        """Update network quality score.
+        
+        Score is 0-100 based on:
+        - Latency (40% weight): <30ms=100, >200ms=0
+        - Jitter (30% weight): Latency variance
+        - Speed consistency (30% weight): Based on activity samples
+        """
+        if not self._latency_samples:
+            self.menu_quality.title = "Quality: ⏳ measuring..."
+            self._quality_score = None
+            return
+        
+        # Need at least 1 sample for basic score, 3+ for full accuracy
+        sample_count = len(self._latency_samples)
+        
+        # Calculate latency score (40%)
+        avg_latency = sum(self._latency_samples) / len(self._latency_samples)
+        if avg_latency <= 30:
+            latency_score = 100
+        elif avg_latency >= 200:
+            latency_score = 0
+        else:
+            # Linear interpolation between 30ms (100) and 200ms (0)
+            latency_score = max(0, 100 - ((avg_latency - 30) / 170) * 100)
+        
+        # Calculate jitter score (30%) - lower variance is better
+        if len(self._latency_samples) >= 2:
+            mean = avg_latency
+            variance = sum((x - mean) ** 2 for x in self._latency_samples) / len(self._latency_samples)
+            jitter = variance ** 0.5  # Standard deviation
+            
+            if jitter <= 5:
+                jitter_score = 100
+            elif jitter >= 50:
+                jitter_score = 0
+            else:
+                jitter_score = max(0, 100 - ((jitter - 5) / 45) * 100)
+        else:
+            jitter_score = 50  # Unknown
+        
+        # Calculate consistency score (30%) - based on activity variance
+        if self._activity_samples and len(self._activity_samples) >= 3:
+            activity_list = list(self._activity_samples)
+            if max(activity_list) > 0:
+                # Coefficient of variation (lower is more consistent)
+                mean_activity = sum(activity_list) / len(activity_list)
+                if mean_activity > 0:
+                    std_activity = (sum((x - mean_activity) ** 2 for x in activity_list) / len(activity_list)) ** 0.5
+                    cv = std_activity / mean_activity
+                    # CV of 0 = 100 score, CV of 2+ = 0 score
+                    consistency_score = max(0, 100 - cv * 50)
+                else:
+                    consistency_score = 100  # No activity = consistent
+            else:
+                consistency_score = 100
+        else:
+            consistency_score = 50  # Unknown
+        
+        # Weighted average
+        self._quality_score = int(
+            latency_score * 0.4 +
+            jitter_score * 0.3 +
+            consistency_score * 0.3
+        )
+        
+        # Display with color indicator
+        if self._quality_score >= 80:
+            indicator = "🟢"
+            label = "Excellent"
+        elif self._quality_score >= 60:
+            indicator = "🟡"
+            label = "Good"
+        elif self._quality_score >= 40:
+            indicator = "🟠"
+            label = "Fair"
+        else:
+            indicator = "🔴"
+            label = "Poor"
+        
+        self.menu_quality.title = f"Quality: {indicator} {self._quality_score}% ({label})"
+        
+        # Check for quality drops and log as event
+        jitter = None
+        if len(self._latency_samples) >= 2:
+            mean = avg_latency
+            variance = sum((x - mean) ** 2 for x in self._latency_samples) / len(self._latency_samples)
+            jitter = variance ** 0.5
+        
+        quality_issue = self.issue_detector.check_quality_drop(
+            self._quality_score, 
+            latency=avg_latency,
+            jitter=jitter
+        )
+        if quality_issue:
+            logger.warning(f"Quality drop detected: {quality_issue.description}")
+    
     def _update_history(self):
         """Update history section with weekly and monthly stats."""
         # Get weekly totals
@@ -953,7 +1106,12 @@ class NetworkMonitorApp(rumps.App):
             self.menu_apps.add(rumps.MenuItem(f"Error: {str(e)[:25]}"))
     
     def _update_events(self):
-        """Update recent events menu - dynamically populated."""
+        """Update recent events menu - dynamically populated.
+        
+        Quality drop events are clickable to show troubleshooting info.
+        """
+        from monitor.issues import IssueType
+        
         issues = self.issue_detector.get_recent_issues(10)
         
         self._safe_menu_clear(self.menu_events)
@@ -969,7 +1127,75 @@ class NetworkMonitorApp(rumps.App):
         for issue in reversed(issues):
             time_str = issue.timestamp.strftime("%H:%M")
             desc = issue.description[:35]
-            self.menu_events.add(rumps.MenuItem(f"{time_str}  {desc}"))
+            
+            # Make quality drop events clickable
+            if issue.issue_type == IssueType.QUALITY_DROP:
+                item = rumps.MenuItem(
+                    f"⚠️ {time_str}  {desc}",
+                    callback=lambda _, i=issue: self._show_troubleshooting(i)
+                )
+            elif issue.issue_type == IssueType.HIGH_LATENCY:
+                item = rumps.MenuItem(
+                    f"🔴 {time_str}  {desc}",
+                    callback=lambda _, i=issue: self._show_troubleshooting(i)
+                )
+            elif issue.issue_type == IssueType.DISCONNECT:
+                item = rumps.MenuItem(f"❌ {time_str}  {desc}")
+            elif issue.issue_type == IssueType.RECONNECT:
+                item = rumps.MenuItem(f"✅ {time_str}  {desc}")
+            elif issue.issue_type == IssueType.CONNECTION_CHANGE:
+                item = rumps.MenuItem(f"🔄 {time_str}  {desc}")
+            else:
+                item = rumps.MenuItem(f"{time_str}  {desc}")
+            
+            self.menu_events.add(item)
+    
+    def _show_troubleshooting(self, issue):
+        """Show troubleshooting information for a network issue."""
+        from monitor.issues import IssueType
+        
+        details = issue.details
+        
+        # Build the message
+        lines = [f"Event: {issue.description}", ""]
+        
+        if issue.issue_type == IssueType.QUALITY_DROP:
+            lines.append(f"Previous Score: {details.get('previous_score', 'N/A')}%")
+            lines.append(f"Current Score: {details.get('current_score', 'N/A')}%")
+            if details.get('latency_ms'):
+                lines.append(f"Latency: {details['latency_ms']:.0f}ms")
+            if details.get('jitter_ms'):
+                lines.append(f"Jitter: {details['jitter_ms']:.1f}ms")
+            
+            cause = details.get('likely_cause', 'unknown')
+            cause_labels = {
+                'high_latency': 'High Latency',
+                'high_jitter': 'Unstable Connection',
+                'poor_connection': 'Poor Connection Quality',
+                'network_congestion': 'Network Congestion'
+            }
+            lines.append(f"\nLikely Cause: {cause_labels.get(cause, cause)}")
+            
+            tips = details.get('troubleshooting', [])
+            if tips:
+                lines.append("\nTroubleshooting Tips:")
+                for tip in tips[:5]:
+                    lines.append(f"  • {tip}")
+        
+        elif issue.issue_type == IssueType.HIGH_LATENCY:
+            if details.get('latency_ms'):
+                lines.append(f"Latency: {details['latency_ms']:.0f}ms")
+            lines.append("\nTroubleshooting Tips:")
+            lines.append("  • Check for bandwidth-heavy applications")
+            lines.append("  • Restart your router")
+            lines.append("  • Move closer to WiFi access point")
+            lines.append("  • Consider using wired connection")
+        
+        rumps.alert(
+            title="Network Issue Details",
+            message="\n".join(lines),
+            ok="OK"
+        )
     
     def _format_device_name(self, device: NetworkDevice, include_ip: bool = True) -> str:
         """Get best available identifier for a device with type icon."""
@@ -1171,14 +1397,67 @@ class NetworkMonitorApp(rumps.App):
         folder = str(self.store.data_dir)
         subprocess.run(['open', folder])
     
-    def _progress_bar(self, percent: float, width: int = 15) -> str:
-        """Create a Unicode progress bar."""
-        filled = int(percent / 100 * width)
-        empty = width - filled
+    def _create_budget_bar_image(self, percent: float, width: int = 100, height: int = 12) -> str:
+        """Create a PIL-based budget progress bar image.
         
-        # Use block characters for a clean look
-        bar = "█" * filled + "░" * empty
-        return f"[{bar}]"
+        Args:
+            percent: Budget usage percentage (0-100+)
+            width: Image width in pixels
+            height: Image height in pixels
+            
+        Returns:
+            Path to the generated PNG file
+        """
+        from PIL import Image, ImageDraw
+        import hashlib
+        
+        # Clamp display percent but track if exceeded
+        exceeded = percent > 100
+        display_percent = min(percent, 100)
+        
+        # Create image with transparency
+        img = Image.new('RGBA', (width, height), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(img)
+        
+        # Colors based on status
+        if exceeded:
+            fill_color = (255, 59, 48, 255)      # Red
+            bg_color = (255, 59, 48, 80)         # Light red background
+        elif percent >= 80:
+            fill_color = (255, 204, 0, 255)      # Yellow
+            bg_color = (100, 100, 100, 60)       # Gray background
+        else:
+            fill_color = (52, 199, 89, 255)      # Green
+            bg_color = (100, 100, 100, 60)       # Gray background
+        
+        # Draw background (rounded rectangle)
+        padding = 1
+        radius = height // 3
+        draw.rounded_rectangle(
+            [padding, padding, width - padding, height - padding],
+            radius=radius,
+            fill=bg_color
+        )
+        
+        # Draw filled portion
+        filled_width = int((display_percent / 100) * (width - 2 * padding))
+        if filled_width > 0:
+            draw.rounded_rectangle(
+                [padding, padding, padding + filled_width, height - padding],
+                radius=radius,
+                fill=fill_color
+            )
+        
+        # Save to temp file
+        temp_dir = Path(tempfile.gettempdir()) / STORAGE.ICON_TEMP_DIR
+        temp_dir.mkdir(exist_ok=True)
+        
+        # Use hash for caching
+        cache_key = f"budget_{int(percent)}_{width}_{height}"
+        img_path = temp_dir / f'{cache_key}.png'
+        
+        img.save(str(img_path), 'PNG')
+        return str(img_path)
     
     def _update_budget(self, conn: ConnectionInfo, today_sent: int, today_recv: int):
         """Update budget status display with visual progress bar."""
@@ -1209,17 +1488,50 @@ class NetworkMonitorApp(rumps.App):
             period_label = "this month"
         
         status = self.settings.check_budget_status(conn_key, 0, usage)
-        percent = min(100, status['percent_used'])
+        percent = status['percent_used']
         
-        # Visual progress bar
-        progress = self._progress_bar(percent, 12)
+        # Create visual progress bar image
+        try:
+            bar_image_path = self._create_budget_bar_image(percent)
+            self._set_menu_image(self.menu_budget, bar_image_path)
+        except Exception as e:
+            logger.debug(f"Could not create budget bar: {e}")
         
+        # Format remaining data
+        remaining = format_bytes(status['remaining_bytes'])
+        
+        # Budget notifications and title
         if status['exceeded']:
-            self.menu_budget.title = f"🔴 {progress} OVER LIMIT"
+            self.menu_budget.title = f"  OVER LIMIT ({percent:.0f}%)"
+            # Send exceeded notification (once per connection)
+            if conn_key not in self._budget_exceeded_notified:
+                self._budget_exceeded_notified.add(conn_key)
+                limit_str = format_bytes(status['limit_bytes'])
+                rumps.notification(
+                    title="Network Monitor",
+                    subtitle="⚠️ Data Budget Exceeded!",
+                    message=f"You've exceeded your {budget.period} limit of {limit_str} on {conn_key}.",
+                    sound=True
+                )
+                logger.warning(f"Budget exceeded for {conn_key}: {percent:.1f}%")
         elif status['warning']:
-            self.menu_budget.title = f"🟡 {progress} {percent:.0f}%"
+            self.menu_budget.title = f"  {percent:.0f}% used ({remaining} left)"
+            # Send warning notification (once per connection)
+            if conn_key not in self._budget_warning_notified:
+                self._budget_warning_notified.add(conn_key)
+                rumps.notification(
+                    title="Network Monitor",
+                    subtitle=f"Data Budget Warning ({percent:.0f}%)",
+                    message=f"You've used {percent:.0f}% of your {budget.period} limit. {remaining} remaining.",
+                    sound=False
+                )
+                logger.info(f"Budget warning for {conn_key}: {percent:.1f}%")
         else:
-            self.menu_budget.title = f"🟢 {progress} {percent:.0f}%"
+            self.menu_budget.title = f"  {percent:.0f}% used ({remaining} left)"
+            # Reset notification flags when under warning threshold
+            # (allows re-notification if usage drops and rises again)
+            self._budget_warning_notified.discard(conn_key)
+            self._budget_exceeded_notified.discard(conn_key)
     
     def _build_budget_menu(self):
         """Build the budget submenu with presets and options."""
@@ -1384,6 +1696,161 @@ class NetworkMonitorApp(rumps.App):
                 lines.append("")
         
         rumps.alert("Data Budgets", "\n".join(lines))
+    
+    # === Data Export ===
+    
+    def _export_csv(self, _):
+        """Export network data to CSV file."""
+        import csv
+        from datetime import datetime
+        
+        # Get export file path
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        default_filename = f"network_monitor_export_{timestamp}.csv"
+        
+        # Use file dialog to get save location
+        try:
+            import subprocess
+            result = subprocess.run(
+                ['osascript', '-e', 
+                 f'tell application "System Events" to return POSIX path of (choose file name default name "{default_filename}" default location (path to desktop folder))'],
+                capture_output=True, text=True, timeout=60
+            )
+            
+            if result.returncode != 0 or not result.stdout.strip():
+                return  # User cancelled
+            
+            filepath = Path(result.stdout.strip())
+            if not filepath.suffix:
+                filepath = filepath.with_suffix('.csv')
+        except Exception as e:
+            logger.error(f"File dialog error: {e}")
+            # Fallback to desktop
+            filepath = Path.home() / "Desktop" / default_filename
+        
+        try:
+            # Collect data
+            daily = self.store.get_daily_totals(days=30)
+            
+            with open(filepath, 'w', newline='') as f:
+                writer = csv.writer(f)
+                
+                # Header
+                writer.writerow(['Date', 'Uploaded (bytes)', 'Downloaded (bytes)', 'Total (bytes)'])
+                
+                # Daily data
+                for day in daily:
+                    writer.writerow([
+                        day['date'],
+                        day['sent'],
+                        day['recv'],
+                        day['sent'] + day['recv']
+                    ])
+                
+                # Add summary section
+                writer.writerow([])
+                writer.writerow(['Summary'])
+                
+                weekly = self.store.get_weekly_totals()
+                monthly = self.store.get_monthly_totals()
+                
+                writer.writerow(['Period', 'Uploaded', 'Downloaded', 'Total'])
+                writer.writerow(['This Week', weekly['sent'], weekly['recv'], weekly['sent'] + weekly['recv']])
+                writer.writerow(['This Month', monthly['sent'], monthly['recv'], monthly['sent'] + monthly['recv']])
+            
+            rumps.notification(
+                title="Network Monitor",
+                subtitle="Export Complete",
+                message=f"Data exported to {filepath.name}"
+            )
+            logger.info(f"Data exported to CSV: {filepath}")
+            
+            # Open in Finder
+            subprocess.run(['open', '-R', str(filepath)])
+            
+        except Exception as e:
+            logger.error(f"CSV export error: {e}", exc_info=True)
+            rumps.alert("Export Error", f"Could not export data: {e}")
+    
+    def _export_json(self, _):
+        """Export network data to JSON file."""
+        import json
+        from datetime import datetime
+        
+        # Get export file path  
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        default_filename = f"network_monitor_export_{timestamp}.json"
+        
+        # Use file dialog to get save location
+        try:
+            import subprocess
+            result = subprocess.run(
+                ['osascript', '-e',
+                 f'tell application "System Events" to return POSIX path of (choose file name default name "{default_filename}" default location (path to desktop folder))'],
+                capture_output=True, text=True, timeout=60
+            )
+            
+            if result.returncode != 0 or not result.stdout.strip():
+                return  # User cancelled
+            
+            filepath = Path(result.stdout.strip())
+            if not filepath.suffix:
+                filepath = filepath.with_suffix('.json')
+        except Exception as e:
+            logger.error(f"File dialog error: {e}")
+            # Fallback to desktop
+            filepath = Path.home() / "Desktop" / default_filename
+        
+        try:
+            # Collect comprehensive data
+            export_data = {
+                "export_timestamp": datetime.now().isoformat(),
+                "app_version": "1.2",
+                "daily_usage": self.store.get_daily_totals(days=90),
+                "weekly_totals": self.store.get_weekly_totals(),
+                "monthly_totals": self.store.get_monthly_totals(),
+                "current_session": {
+                    "upload_bytes": self.network_stats.get_session_totals()[0],
+                    "download_bytes": self.network_stats.get_session_totals()[1],
+                },
+                "network_quality": {
+                    "score": self._quality_score,
+                    "avg_latency_ms": sum(self._latency_samples) / len(self._latency_samples) if self._latency_samples else None,
+                    "sample_count": len(self._latency_samples),
+                },
+                "devices": [
+                    {
+                        "ip": d.ip_address,
+                        "mac": d.mac_address,
+                        "name": d.display_name,
+                        "vendor": d.vendor,
+                        "type": d.device_type,
+                        "is_online": d.is_online,
+                    }
+                    for d in self.network_scanner.get_all_devices()
+                ],
+                "budgets": {
+                    k: v.to_dict() for k, v in self.settings.get_all_budgets().items()
+                },
+            }
+            
+            with open(filepath, 'w') as f:
+                json.dump(export_data, f, indent=2, default=str)
+            
+            rumps.notification(
+                title="Network Monitor",
+                subtitle="Export Complete",
+                message=f"Data exported to {filepath.name}"
+            )
+            logger.info(f"Data exported to JSON: {filepath}")
+            
+            # Open in Finder
+            import subprocess
+            subprocess.run(['open', '-R', str(filepath)])
+            
+        except Exception as e:
+            logger.error(f"JSON export error: {e}", exc_info=True)
+            rumps.alert("Export Error", f"Could not export data: {e}")
     
     def _set_title_display(self, mode: str):
         """Set the title display mode."""
