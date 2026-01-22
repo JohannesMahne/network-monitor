@@ -688,12 +688,17 @@ class NetworkMonitorApp(rumps.App):
     
     def _create_sparkline_pil(self, values: list, color: str = '#007AFF',
                                width: int = 120, height: int = 16) -> str:
-        """Create sparkline using PIL/Pillow - fast and lightweight."""
+        """Create sparkline using PIL/Pillow - fast and lightweight with anti-aliasing."""
         from PIL import Image, ImageDraw
         import hashlib
         
-        # Create image with transparency
-        img = Image.new('RGBA', (width, height), (0, 0, 0, 0))
+        # Draw at 3x resolution for smooth anti-aliasing
+        scale = 3
+        scaled_width = width * scale
+        scaled_height = height * scale
+        
+        # Create image with transparency at higher resolution
+        img = Image.new('RGBA', (scaled_width, scaled_height), (0, 0, 0, 0))
         draw = ImageDraw.Draw(img)
         
         # Convert hex color to RGB tuple
@@ -705,22 +710,32 @@ class NetworkMonitorApp(rumps.App):
             r, g, b = 0, 122, 255  # Default blue
         
         line_color = (r, g, b, 255)
-        fill_color = (r, g, b, 40)  # Semi-transparent fill
+        fill_color = (r, g, b, 50)  # Semi-transparent fill
         
         # Calculate scaling
-        padding_x = 2
-        padding_y = 2
-        graph_width = width - 2 * padding_x
-        graph_height = height - 2 * padding_y
+        padding_x = 4 * scale
+        padding_y = 3 * scale
+        graph_width = scaled_width - 2 * padding_x
+        graph_height = scaled_height - 2 * padding_y
         
         max_val = max(values) if max(values) > 0 else 1
         min_val = min(values)
         val_range = max_val - min_val if max_val != min_val else 1
         
-        # Calculate points
+        # Interpolate more points for smoother curves
+        interpolated = []
+        for i in range(len(values) - 1):
+            v1, v2 = values[i], values[i + 1]
+            # Add original point and 2 interpolated points between each pair
+            interpolated.append(v1)
+            interpolated.append(v1 + (v2 - v1) * 0.33)
+            interpolated.append(v1 + (v2 - v1) * 0.67)
+        interpolated.append(values[-1])
+        
+        # Calculate points from interpolated values
         points = []
-        for i, val in enumerate(values):
-            x = padding_x + (i / (len(values) - 1)) * graph_width
+        for i, val in enumerate(interpolated):
+            x = padding_x + (i / (len(interpolated) - 1)) * graph_width
             # Normalize value to graph height (invert Y since PIL coords are top-down)
             normalized = (val - min_val) / val_range
             y = padding_y + (1 - normalized) * graph_height
@@ -729,20 +744,23 @@ class NetworkMonitorApp(rumps.App):
         # Draw filled area under the line
         if len(points) >= 2:
             fill_points = list(points)
-            fill_points.append((points[-1][0], height - padding_y))
-            fill_points.append((points[0][0], height - padding_y))
+            fill_points.append((points[-1][0], scaled_height - padding_y))
+            fill_points.append((points[0][0], scaled_height - padding_y))
             draw.polygon(fill_points, fill=fill_color)
         
-        # Draw the line
+        # Draw the line with thicker width (scales down nicely)
         if len(points) >= 2:
-            draw.line(points, fill=line_color, width=1)
+            draw.line(points, fill=line_color, width=2 * scale)
         
         # Draw last point marker (small circle)
         if points:
             last_x, last_y = points[-1]
-            r_dot = 2
+            r_dot = 3 * scale
             draw.ellipse([last_x - r_dot, last_y - r_dot, 
                          last_x + r_dot, last_y + r_dot], fill=line_color)
+        
+        # Resize down to final size with high-quality anti-aliasing
+        img = img.resize((width, height), Image.Resampling.LANCZOS)
         
         # Save to temp file
         temp_dir = Path(tempfile.gettempdir()) / STORAGE.SPARKLINE_TEMP_DIR
