@@ -1460,9 +1460,14 @@ class NetworkMonitorApp(rumps.App):
             self.menu_budget.title = "Budget: Not set  ›"
             return
         
-        # Get usage for the budget period
+        # Get usage for the budget period (specific to this connection)
         if budget.period == "daily":
-            usage = today_sent + today_recv
+            # Get today's stats for this specific connection
+            today_stats = self.store.get_today_stats(conn_key)
+            if today_stats:
+                usage = today_stats.bytes_sent + today_stats.bytes_recv
+            else:
+                usage = 0
             period_label = "today"
         elif budget.period == "weekly":
             weekly = self.store.get_weekly_totals()
