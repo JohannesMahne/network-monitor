@@ -18,8 +18,8 @@ OPTIONS = {
         'CFBundleName': 'Network Monitor',
         'CFBundleDisplayName': 'Network Monitor',
         'CFBundleIdentifier': 'com.networkmonitor.app',
-        'CFBundleVersion': '2.0.0',
-        'CFBundleShortVersionString': '2.0.0',
+        'CFBundleVersion': '1.4.0',
+        'CFBundleShortVersionString': '1.4.0',
         'LSMinimumSystemVersion': '10.14.0',
         'LSUIElement': True,  # Hide dock icon (menu bar app)
         'NSHighResolutionCapable': True,
