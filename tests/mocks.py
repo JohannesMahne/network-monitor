@@ -272,13 +272,20 @@ class MockJsonStore:
                      peak_up: float = 0, peak_down: float = 0) -> None:
         if self._today_key not in self._data:
             self._data[self._today_key] = {}
-        self._data[self._today_key][conn_key] = {
-            'bytes_sent': sent,
-            'bytes_recv': recv,
-            'peak_upload': peak_up,
-            'peak_download': peak_down,
-            'issues': [],
-        }
+        if conn_key not in self._data[self._today_key]:
+            self._data[self._today_key][conn_key] = {
+                'bytes_sent': 0,
+                'bytes_recv': 0,
+                'peak_upload': 0,
+                'peak_download': 0,
+                'issues': [],
+            }
+        # Add to existing values (accumulate deltas, don't replace)
+        stats = self._data[self._today_key][conn_key]
+        stats['bytes_sent'] += sent
+        stats['bytes_recv'] += recv
+        stats['peak_upload'] = max(stats['peak_upload'], peak_up)
+        stats['peak_download'] = max(stats['peak_download'], peak_down)
     
     def get_today_totals(self) -> Tuple[int, int]:
         if self._today_key not in self._data:

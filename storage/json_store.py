@@ -128,7 +128,15 @@ class JsonStore:
     
     def update_stats(self, connection_key: str, bytes_sent: int, bytes_recv: int,
                      peak_upload: float = 0, peak_download: float = 0) -> None:
-        """Update statistics for a connection."""
+        """Update statistics for a connection by ADDING to existing values.
+        
+        Args:
+            connection_key: Connection identifier (e.g., SSID or interface name)
+            bytes_sent: Bytes sent since last update (delta, not total)
+            bytes_recv: Bytes received since last update (delta, not total)
+            peak_upload: Peak upload speed in bytes/sec
+            peak_download: Peak download speed in bytes/sec
+        """
         with self._lock:
             today = self._ensure_today_exists()
             
@@ -136,8 +144,9 @@ class JsonStore:
                 self._data[today][connection_key] = ConnectionStats().to_dict()
             
             stats = self._data[today][connection_key]
-            stats["bytes_sent"] = bytes_sent
-            stats["bytes_recv"] = bytes_recv
+            # Add to existing values (accumulate deltas, don't replace)
+            stats["bytes_sent"] = stats.get("bytes_sent", 0) + bytes_sent
+            stats["bytes_recv"] = stats.get("bytes_recv", 0) + bytes_recv
             
             # Update peaks if higher
             if peak_upload > stats.get("peak_upload", 0):

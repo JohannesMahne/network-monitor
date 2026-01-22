@@ -37,7 +37,7 @@ class AppDependencies:
     traffic_monitor: 'TrafficMonitor'
     
     # Storage components
-    store: 'JsonStore'
+    store: 'SQLiteStore'
     settings: 'SettingsManager'
     
     # Service components
@@ -77,7 +77,7 @@ def create_dependencies(
     from monitor.issues import IssueDetector
     from monitor.scanner import NetworkScanner
     from monitor.traffic import TrafficMonitor
-    from storage.json_store import JsonStore
+    from storage.sqlite_store import SQLiteStore
     from storage.settings import get_settings_manager
     from service.launch_agent import get_launch_agent_manager
     from app.events import get_event_bus
@@ -89,7 +89,7 @@ def create_dependencies(
         data_dir = Path.home() / STORAGE.DATA_DIR_NAME
     
     # Create storage first (other components may depend on it)
-    store = JsonStore(data_dir=data_dir)
+    store = SQLiteStore(data_dir=data_dir)
     settings = get_settings_manager(data_dir)
     
     # Create monitoring components

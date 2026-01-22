@@ -52,6 +52,7 @@ class AppController:
         self._running = False
         self._last_connection_key = ""
         self._connection_start_bytes = (0, 0)
+        self._last_stored_bytes: dict = {}  # Track last bytes sent to DB to compute delta
         self._last_device_scan = 0
         self._last_latency_check = 0
         self._current_latency: Optional[float] = None
@@ -161,15 +162,22 @@ class AppController:
             state['session_totals'] = (session_sent, session_recv)
             state['connection_totals'] = (conn_sent, conn_recv)
             
-            # Update persistent storage
+            # Update persistent storage with DELTA (bytes since last update)
+            # This ensures data accumulates correctly across app restarts
             if conn.is_connected:
-                self.deps.store.update_stats(
-                    conn_key,
-                    conn_sent,
-                    conn_recv,
-                    peak_up,
-                    peak_down
-                )
+                last_sent, last_recv = self._last_stored_bytes.get(conn_key, (0, 0))
+                delta_sent = max(0, conn_sent - last_sent)
+                delta_recv = max(0, conn_recv - last_recv)
+                
+                if delta_sent > 0 or delta_recv > 0:
+                    self.deps.store.update_stats(
+                        conn_key,
+                        delta_sent,
+                        delta_recv,
+                        peak_up,
+                        peak_down
+                    )
+                    self._last_stored_bytes[conn_key] = (conn_sent, conn_recv)
             
             # Publish stats update event
             self.event_bus.publish(EventType.STATS_UPDATED, {
@@ -210,6 +218,9 @@ class AppController:
         
         self._last_connection_key = new_conn_key
         self._connection_start_bytes = self.deps.network_stats.get_session_totals()
+        # Reset delta tracking for this connection to start fresh
+        if new_conn_key in self._last_stored_bytes:
+            del self._last_stored_bytes[new_conn_key]
         logger.info(f"Connection changed to: {new_conn_key}")
     
     def _scan_devices(self) -> None:
@@ -343,6 +354,7 @@ class AppController:
         self.deps.network_stats.reset_session()
         self.deps.issue_detector.clear_issues()
         self._connection_start_bytes = (0, 0)
+        self._last_stored_bytes = {}  # Reset delta tracking
         self._upload_history.clear()
         self._download_history.clear()
         self._latency_history.clear()
@@ -355,6 +367,7 @@ class AppController:
         self.deps.store.reset_today()
         self.deps.network_stats.reset_session()
         self.deps.issue_detector.clear_issues()
+        self._last_stored_bytes = {}  # Reset delta tracking
         
         logger.info("Today's stats reset")
     
