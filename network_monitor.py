@@ -498,27 +498,33 @@ class NetworkMonitorApp(rumps.App):
         self.menu_actions.add(self.menu_backup)
         self.menu_actions.add(self.menu_data_location)
         
-        # === BUILD MENU (standard macOS layout) ===
+        # === BUILD MENU (organized by category) ===
         # Note: VPN status is added dynamically when VPN is detected
         self.menu = [
+            # --- Connection & Live Status ---
+            self.menu_connection,
+            self.menu_speed,
+            self.menu_latency,
+            self.menu_quality,
+            rumps.separator,
+            # --- Sparkline Graphs (visual trends) ---
             self.menu_graph_quality,
             self.menu_graph_upload,
             self.menu_graph_download,
             self.menu_graph_total,
             self.menu_graph_latency,
             rumps.separator,
-            self.menu_connection,
-            self.menu_speed,
-            self.menu_latency,
-            self.menu_quality,
+            # --- Usage Stats ---
             self.menu_today,
             self.menu_budget,
             rumps.separator,
+            # --- Data Sections ---
             self.menu_devices,
             self.menu_apps,
             self.menu_history,
             self.menu_events,
             rumps.separator,
+            # --- App Controls ---
             self.menu_settings,
             self.menu_actions,
             rumps.separator,
