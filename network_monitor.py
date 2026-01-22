@@ -2267,9 +2267,11 @@ def main():
             try:
                 app._save_sparkline_history()
                 app.store.flush()
+                logger.info("Data saved, quitting...")
+                rumps.quit_application()
             except Exception as e:
                 logger.error(f"Error saving on signal: {e}")
-        sys.exit(0)
+                rumps.quit_application()
     
     # Register signal handlers for graceful shutdown
     signal.signal(signal.SIGTERM, signal_handler)
