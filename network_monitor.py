@@ -29,6 +29,82 @@ from storage.settings import get_settings_manager, ConnectionBudget, BudgetPerio
 from service.launch_agent import get_launch_agent_manager
 from config import setup_logging, get_logger, INTERVALS, THRESHOLDS, STORAGE, COLORS, UI
 
+# Import AppKit for menu-aware timers
+try:
+    from Foundation import NSTimer, NSRunLoop, NSRunLoopCommonModes
+    HAS_FOUNDATION = True
+except ImportError:
+    HAS_FOUNDATION = False
+
+
+class MenuAwareTimer:
+    """Timer that continues running even when menu is open.
+    
+    Uses NSRunLoopCommonModes which includes NSEventTrackingRunLoopMode,
+    allowing the timer to fire during menu interactions.
+    """
+    
+    def __init__(self, callback, interval):
+        self.callback = callback
+        self._interval = interval
+        self._timer = None
+        self._running = False
+    
+    @property
+    def interval(self):
+        return self._interval
+    
+    @interval.setter
+    def interval(self, value):
+        """Update interval - requires restart to take effect."""
+        if self._interval != value:
+            self._interval = value
+            if self._running:
+                self.stop()
+                self.start()
+    
+    def _timer_fired_(self, timer):
+        """Called when NSTimer fires."""
+        if self._running and self.callback:
+            self.callback(self)
+    
+    def start(self):
+        """Start the timer with NSRunLoopCommonModes."""
+        if self._running:
+            return
+        
+        self._running = True
+        
+        if HAS_FOUNDATION:
+            # Create NSTimer that runs in common modes (including menu tracking)
+            self._timer = NSTimer.timerWithTimeInterval_target_selector_userInfo_repeats_(
+                self._interval,
+                self,
+                '_timer_fired_',
+                None,
+                True
+            )
+            # Add to run loop with CommonModes - this is the key!
+            NSRunLoop.currentRunLoop().addTimer_forMode_(self._timer, NSRunLoopCommonModes)
+        else:
+            # Fallback to threading if Foundation not available
+            import threading
+            def run():
+                import time
+                while self._running:
+                    time.sleep(self._interval)
+                    if self._running and self.callback:
+                        self.callback(self)
+            self._thread = threading.Thread(target=run, daemon=True)
+            self._thread.start()
+    
+    def stop(self):
+        """Stop the timer."""
+        self._running = False
+        if self._timer:
+            self._timer.invalidate()
+            self._timer = None
+
 # Hide dock icon (menu bar only app)
 from Foundation import NSBundle
 info = NSBundle.mainBundle().infoDictionary()
@@ -330,12 +406,14 @@ class NetworkMonitorApp(rumps.App):
     def _start_monitoring(self):
         """Initialize monitoring and start timer."""
         self.network_stats.initialize()
-        # Start the update timer (runs on main thread) with adaptive interval
-        self._update_timer = rumps.Timer(self._timer_callback, self._current_update_interval)
+        # Start the update timer with adaptive interval
+        # Use MenuAwareTimer so updates continue even when menu is open
+        self._update_timer = MenuAwareTimer(self._timer_callback, self._current_update_interval)
         self._update_timer.start()
         # Start a fast timer for sparkline updates (1 second) - keeps graphs smooth
-        self._sparkline_timer = rumps.Timer(self._sparkline_timer_callback, 1.0)
+        self._sparkline_timer = MenuAwareTimer(self._sparkline_timer_callback, 1.0)
         self._sparkline_timer.start()
+        logger.info("Started menu-aware timers for continuous updates")
     
     def _timer_callback(self, timer):
         """Timer callback (runs on main thread - thread-safe for UI)."""
