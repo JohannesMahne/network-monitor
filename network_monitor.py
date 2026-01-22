@@ -988,20 +988,18 @@ class NetworkMonitorApp(rumps.App):
             title: Optional new title (setting title helps force refresh)
         """
         try:
-            from AppKit import NSImage, NSData
+            from AppKit import NSImage
             
-            # Load image data directly to bypass NSImage caching
-            with open(image_path, 'rb') as f:
-                image_data = NSData.dataWithBytes_length_(f.read(), os.path.getsize(image_path))
-            
-            image = NSImage.alloc().initWithData_(image_data)
-            if image:
+            # Load image directly - use unique filenames to bypass cache
+            image = NSImage.alloc().initWithContentsOfFile_(image_path)
+            if image and menu_item and hasattr(menu_item, '_menuitem'):
                 ns_item = menu_item._menuitem
-                ns_item.setImage_(image)
-                
-                # Setting the title helps trigger visual refresh
-                if title is not None:
-                    ns_item.setTitle_(title)
+                if ns_item:
+                    ns_item.setImage_(image)
+                    
+                    # Setting the title helps trigger visual refresh
+                    if title is not None:
+                        ns_item.setTitle_(title)
                 
         except Exception as e:
             logger.debug(f"Failed to set menu image: {e}")
