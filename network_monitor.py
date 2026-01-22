@@ -334,6 +334,7 @@ class NetworkMonitorApp(rumps.App):
         self._session_bytes_recv = 0
         self._last_connection_key = ""
         self._connection_start_bytes = (0, 0)
+        self._last_stored_bytes = {}  # Track last bytes sent to DB to compute delta
         self._last_device_scan = 0
         self._device_scan_interval = INTERVALS.DEVICE_SCAN_SECONDS
         self._last_traffic_update = 0
@@ -692,15 +693,22 @@ class NetworkMonitorApp(rumps.App):
             conn_sent = session_sent - self._connection_start_bytes[0]
             conn_recv = session_recv - self._connection_start_bytes[1]
             
-            # Update persistent storage
+            # Update persistent storage with DELTA (bytes since last update)
+            # This ensures data accumulates across app restarts
             if conn.is_connected:
-                self.store.update_stats(
-                    conn_key,
-                    conn_sent,
-                    conn_recv,
-                    peak_up,
-                    peak_down
-                )
+                last_sent, last_recv = self._last_stored_bytes.get(conn_key, (0, 0))
+                delta_sent = max(0, conn_sent - last_sent)
+                delta_recv = max(0, conn_recv - last_recv)
+                
+                if delta_sent > 0 or delta_recv > 0:
+                    self.store.update_stats(
+                        conn_key,
+                        delta_sent,
+                        delta_recv,
+                        peak_up,
+                        peak_down
+                    )
+                    self._last_stored_bytes[conn_key] = (conn_sent, conn_recv)
             
             # Update menu items (on main thread via rumps timer)
             self._update_menu(conn, stats, avg_up, avg_down, peak_up, peak_down,
@@ -1692,6 +1700,7 @@ class NetworkMonitorApp(rumps.App):
         self.network_stats.reset_session()
         self.issue_detector.clear_issues()
         self._connection_start_bytes = (0, 0)
+        self._last_stored_bytes = {}  # Reset delta tracking
         # Clear history
         self._upload_history.clear()
         self._download_history.clear()

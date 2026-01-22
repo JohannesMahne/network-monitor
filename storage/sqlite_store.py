@@ -287,12 +287,12 @@ class SQLiteStore:
     
     def update_stats(self, connection_key: str, bytes_sent: int, bytes_recv: int,
                      peak_upload: float = 0, peak_download: float = 0) -> None:
-        """Update statistics for a connection.
+        """Update statistics for a connection by ADDING to existing values.
         
         Args:
             connection_key: Connection identifier (e.g., SSID or interface name)
-            bytes_sent: Total bytes sent for current session
-            bytes_recv: Total bytes received for current session
+            bytes_sent: Bytes sent since last update (delta, not total)
+            bytes_recv: Bytes received since last update (delta, not total)
             peak_upload: Peak upload speed in bytes/sec
             peak_download: Peak download speed in bytes/sec
         """
@@ -301,14 +301,15 @@ class SQLiteStore:
             
             try:
                 with self._connection() as conn:
-                    # Use UPSERT to update or insert
+                    # Use UPSERT to ADD to existing values (not replace)
+                    # This ensures data persists across app restarts
                     conn.execute("""
                         INSERT INTO traffic_stats 
                         (date, connection_key, bytes_sent, bytes_recv, peak_upload, peak_download, updated_at)
                         VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
                         ON CONFLICT(date, connection_key) DO UPDATE SET
-                            bytes_sent = excluded.bytes_sent,
-                            bytes_recv = excluded.bytes_recv,
+                            bytes_sent = bytes_sent + excluded.bytes_sent,
+                            bytes_recv = bytes_recv + excluded.bytes_recv,
                             peak_upload = MAX(peak_upload, excluded.peak_upload),
                             peak_download = MAX(peak_download, excluded.peak_download),
                             updated_at = CURRENT_TIMESTAMP
