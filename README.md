@@ -343,6 +343,14 @@ Without Location Services, the app will show "WiFi (Private - enable Location)" 
 - Check that `~/.network-monitor/` is writable
 - Look for error messages in the terminal
 
+## Contributing
+
+Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md) for version history and release notes.
+
 ## License
 
 MIT License - feel free to modify and use as needed.
