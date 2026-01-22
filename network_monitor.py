@@ -128,6 +128,96 @@ class SingletonLock:
         self._lock_file = Path(tempfile.gettempdir()) / f"{lock_name}.lock"
         self._lock_fd = None
     
+    def get_running_pid(self) -> Optional[int]:
+        """Get the PID of the currently running instance, if any.
+        
+        Returns:
+            PID of running instance, or None if no instance is running.
+        """
+        pid_file = self._lock_file.with_suffix('.pid')
+        if not pid_file.exists():
+            return None
+        try:
+            with open(pid_file, 'r') as f:
+                pid_str = f.read().strip()
+                if pid_str:
+                    pid = int(pid_str)
+                    # Check if process is actually running
+                    os.kill(pid, 0)  # Signal 0 = check if process exists
+                    return pid
+        except (ValueError, ProcessLookupError, PermissionError, OSError):
+            pass
+        return None
+    
+    def _write_pid(self):
+        """Write our PID to the pid file."""
+        pid_file = self._lock_file.with_suffix('.pid')
+        try:
+            with open(pid_file, 'w') as f:
+                f.write(str(os.getpid()))
+        except Exception:
+            pass  # Non-critical
+    
+    def _remove_pid(self):
+        """Remove the pid file."""
+        pid_file = self._lock_file.with_suffix('.pid')
+        try:
+            pid_file.unlink(missing_ok=True)
+        except Exception:
+            pass  # Non-critical
+    
+    def kill_existing(self, timeout: float = 3.0) -> bool:
+        """Kill any existing instance and wait for it to exit.
+        
+        Args:
+            timeout: Maximum seconds to wait for graceful shutdown before force kill.
+            
+        Returns:
+            True if no instance was running or it was successfully killed.
+        """
+        import time as time_module
+        
+        pid = self.get_running_pid()
+        if pid is None:
+            return True
+        
+        print(f"Stopping existing instance (PID {pid})...")
+        
+        try:
+            # Try SIGTERM first for graceful shutdown
+            os.kill(pid, signal.SIGTERM)
+            
+            # Wait briefly for graceful exit
+            start_time = time_module.time()
+            while time_module.time() - start_time < timeout:
+                try:
+                    os.kill(pid, 0)  # Check if still running
+                    time_module.sleep(0.2)
+                except ProcessLookupError:
+                    print("Previous instance stopped gracefully.")
+                    self._remove_pid()  # Clean up PID file
+                    return True
+            
+            # Process didn't exit gracefully - force kill
+            # (rumps/AppKit event loop may not process signals properly)
+            print("Force killing (SIGKILL)...")
+            os.kill(pid, signal.SIGKILL)
+            time_module.sleep(0.5)
+            self._remove_pid()  # Clean up PID file
+            print("Previous instance force stopped.")
+            return True
+            
+        except ProcessLookupError:
+            # Process already gone
+            self._remove_pid()
+            return True
+        except PermissionError:
+            print(f"Permission denied to kill process {pid}")
+            return False
+        except Exception as e:
+            print(f"Error stopping existing instance: {e}")
+            return False
+    
     def acquire(self) -> bool:
         """Try to acquire the singleton lock.
         
@@ -138,9 +228,8 @@ class SingletonLock:
         try:
             self._lock_fd = open(self._lock_file, 'w')
             fcntl.flock(self._lock_fd.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-            # Write our PID for debugging
-            self._lock_fd.write(str(os.getpid()))
-            self._lock_fd.flush()
+            # Write our PID to separate file (lock file gets truncated on open)
+            self._write_pid()
             return True
         except (IOError, OSError):
             # Lock is held by another process
@@ -151,6 +240,7 @@ class SingletonLock:
     
     def release(self):
         """Release the singleton lock."""
+        self._remove_pid()
         if self._lock_fd:
             try:
                 fcntl.flock(self._lock_fd.fileno(), fcntl.LOCK_UN)
@@ -2313,20 +2403,20 @@ Built with Python, rumps, and matplotlib.
 
 def main():
     """Entry point for the application."""
-    # Check for existing instance first (before logging to avoid confusion)
+    # Try to acquire the lock first
     if not _singleton_lock.acquire():
-        # Another instance is running - show alert and exit
-        print("Network Monitor is already running.", file=sys.stderr)
-        try:
-            # Try to show a user-friendly alert
-            rumps.alert(
-                title="Network Monitor",
-                message="Network Monitor is already running.\n\nCheck your menu bar for the existing instance.",
-                ok="OK"
-            )
-        except Exception:
-            pass  # nosec B110 - If alert fails, we've already printed to stderr
-        sys.exit(1)
+        # Another instance is running - kill it and take over
+        if not _singleton_lock.kill_existing():
+            print("Could not stop existing instance.", file=sys.stderr)
+            sys.exit(1)
+        
+        # Try to acquire the lock again after killing
+        import time as time_module
+        time_module.sleep(0.5)  # Give the lock file time to be released
+        
+        if not _singleton_lock.acquire():
+            print("Could not acquire lock after stopping existing instance.", file=sys.stderr)
+            sys.exit(1)
     
     # Register lock release on exit
     atexit.register(_singleton_lock.release)
