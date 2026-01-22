@@ -26,9 +26,14 @@ class LaunchAgentManager:
     
     def _get_python_path(self) -> str:
         """Get the path to the Python interpreter (preferring venv if available)."""
-        venv_python = self.app_dir / "venv" / "bin" / "python"
-        if venv_python.exists():
-            return str(venv_python)
+        # Check common virtual environment locations
+        venv_paths = [
+            self.app_dir / ".venv" / "bin" / "python",
+            self.app_dir / "venv" / "bin" / "python",
+        ]
+        for venv_python in venv_paths:
+            if venv_python.exists():
+                return str(venv_python)
         
         # Fall back to system python3
         return "/usr/bin/python3"
