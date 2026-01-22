@@ -1,0 +1,274 @@
+"""Connection detection for WiFi and Ethernet on macOS."""
+import subprocess
+import re
+from dataclasses import dataclass
+from typing import Optional, List
+import psutil
+
+
+@dataclass
+class ConnectionInfo:
+    """Information about the current network connection."""
+    connection_type: str  # "WiFi", "Ethernet", "Unknown"
+    name: str  # SSID for WiFi, interface name for others
+    interface: str  # e.g., "en0", "en1"
+    is_connected: bool
+    ip_address: Optional[str] = None
+
+
+class ConnectionDetector:
+    """Detects and monitors network connection type and details."""
+    
+    def __init__(self):
+        self._last_connection: Optional[ConnectionInfo] = None
+        self._wifi_interface = self._find_wifi_interface()
+    
+    def _find_wifi_interface(self) -> str:
+        """Find the WiFi interface name (usually en0 or en1)."""
+        try:
+            result = subprocess.run(
+                ['networksetup', '-listallhardwareports'],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+            lines = result.stdout.split('\n')
+            for i, line in enumerate(lines):
+                if 'Wi-Fi' in line or 'AirPort' in line:
+                    # Next line should have "Device: enX"
+                    if i + 1 < len(lines):
+                        match = re.search(r'Device:\s*(\w+)', lines[i + 1])
+                        if match:
+                            return match.group(1)
+        except Exception:
+            pass
+        return 'en0'  # Default fallback
+    
+    def _get_wifi_ssid(self) -> Optional[str]:
+        """Get the current WiFi SSID using CoreWLAN or command-line tools."""
+        
+        # Method 1: Try CoreWLAN framework (works if Location Services enabled)
+        try:
+            import objc
+            from Foundation import NSBundle
+            
+            CoreWLAN = NSBundle.bundleWithPath_('/System/Library/Frameworks/CoreWLAN.framework')
+            if CoreWLAN and CoreWLAN.load():
+                CWWiFiClient = objc.lookUpClass('CWWiFiClient')
+                client = CWWiFiClient.sharedWiFiClient()
+                interface = client.interface()
+                
+                if interface:
+                    ssid = interface.ssid()
+                    if ssid and ssid != '<redacted>':
+                        return ssid
+        except Exception:
+            pass
+        
+        # Method 2: Try networksetup command
+        try:
+            result = subprocess.run(
+                ['networksetup', '-getairportnetwork', self._wifi_interface],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+            if result.returncode == 0:
+                # Output: "Current Wi-Fi Network: NetworkName"
+                match = re.search(r'Current Wi-Fi Network:\s*(.+)', result.stdout)
+                if match:
+                    ssid = match.group(1).strip()
+                    if ssid and ssid not in ("You are not associated with an AirPort network.", "<redacted>"):
+                        return ssid
+        except Exception:
+            pass
+        
+        # Method 3: Try airport command
+        try:
+            airport_path = '/System/Library/PrivateFrameworks/Apple80211.framework/Versions/Current/Resources/airport'
+            result = subprocess.run(
+                [airport_path, '-I'],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+            if result.returncode == 0:
+                match = re.search(r'\s+SSID:\s*(.+)', result.stdout)
+                if match:
+                    ssid = match.group(1).strip()
+                    if ssid and ssid != '<redacted>':
+                        return ssid
+        except Exception:
+            pass
+        
+        # Method 4: Check if we're connected to WiFi but SSID is private
+        # (macOS 14+ hides SSID without Location Services permission)
+        try:
+            result = subprocess.run(
+                ['ipconfig', 'getsummary', self._wifi_interface],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+            if 'SSID' in result.stdout:
+                # WiFi is connected but SSID is hidden due to privacy
+                return "[Private Network]"
+        except Exception:
+            pass
+        
+        return None
+    
+    def _get_active_interfaces(self) -> List[str]:
+        """Get list of active network interfaces with IP addresses."""
+        active = []
+        addrs = psutil.net_if_addrs()
+        stats = psutil.net_if_stats()
+        
+        for iface, addr_list in addrs.items():
+            # Skip loopback and inactive interfaces
+            if iface == 'lo0' or iface.startswith('lo'):
+                continue
+            if iface not in stats or not stats[iface].isup:
+                continue
+            
+            # Check for IPv4 address
+            for addr in addr_list:
+                if addr.family.name == 'AF_INET' and not addr.address.startswith('127.'):
+                    active.append(iface)
+                    break
+        
+        return active
+    
+    def _get_ip_address(self, interface: str) -> Optional[str]:
+        """Get IP address for an interface."""
+        addrs = psutil.net_if_addrs()
+        if interface in addrs:
+            for addr in addrs[interface]:
+                if addr.family.name == 'AF_INET':
+                    return addr.address
+        return None
+    
+    def _get_interface_type(self, interface: str) -> str:
+        """Determine the type of network interface."""
+        try:
+            result = subprocess.run(
+                ['networksetup', '-listallhardwareports'],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+            lines = result.stdout.split('\n')
+            current_port = ""
+            for line in lines:
+                if line.startswith('Hardware Port:'):
+                    current_port = line.replace('Hardware Port:', '').strip()
+                elif f'Device: {interface}' in line:
+                    return current_port
+        except Exception:
+            pass
+        return "Unknown"
+    
+    def get_current_connection(self) -> ConnectionInfo:
+        """Get information about the current network connection."""
+        active_interfaces = self._get_active_interfaces()
+        
+        if not active_interfaces:
+            return ConnectionInfo(
+                connection_type="None",
+                name="Disconnected",
+                interface="",
+                is_connected=False
+            )
+        
+        # Check if WiFi is active and connected to a network
+        if self._wifi_interface in active_interfaces:
+            ssid = self._get_wifi_ssid()
+            if ssid:
+                # Clean up display name for private networks
+                display_name = ssid if ssid != "[Private Network]" else "WiFi (Private - enable Location)"
+                return ConnectionInfo(
+                    connection_type="WiFi",
+                    name=display_name,
+                    interface=self._wifi_interface,
+                    is_connected=True,
+                    ip_address=self._get_ip_address(self._wifi_interface)
+                )
+        
+        # Check each active interface and determine its type
+        for iface in active_interfaces:
+            iface_type = self._get_interface_type(iface)
+            
+            # WiFi interface but no SSID (might be sharing, bridge, etc.)
+            if iface == self._wifi_interface:
+                return ConnectionInfo(
+                    connection_type="WiFi",
+                    name="WiFi (No SSID)",
+                    interface=iface,
+                    is_connected=True,
+                    ip_address=self._get_ip_address(iface)
+                )
+            
+            # Ethernet-type connections
+            if 'Ethernet' in iface_type or 'LAN' in iface_type:
+                return ConnectionInfo(
+                    connection_type="Ethernet",
+                    name=iface_type,
+                    interface=iface,
+                    is_connected=True,
+                    ip_address=self._get_ip_address(iface)
+                )
+            
+            # Thunderbolt connections (often docks with Ethernet)
+            if 'Thunderbolt' in iface_type:
+                return ConnectionInfo(
+                    connection_type="Thunderbolt",
+                    name=f"Thunderbolt Network ({iface})",
+                    interface=iface,
+                    is_connected=True,
+                    ip_address=self._get_ip_address(iface)
+                )
+            
+            # Bridge connections
+            if iface.startswith('bridge'):
+                return ConnectionInfo(
+                    connection_type="Bridge",
+                    name=f"Bridge ({iface})",
+                    interface=iface,
+                    is_connected=True,
+                    ip_address=self._get_ip_address(iface)
+                )
+        
+        # Fallback: use first active interface
+        iface = active_interfaces[0]
+        iface_type = self._get_interface_type(iface)
+        return ConnectionInfo(
+            connection_type="Network",
+            name=f"{iface_type} ({iface})" if iface_type != "Unknown" else iface,
+            interface=iface,
+            is_connected=True,
+            ip_address=self._get_ip_address(iface)
+        )
+    
+    def has_connection_changed(self) -> bool:
+        """Check if the connection has changed since last check."""
+        current = self.get_current_connection()
+        
+        if self._last_connection is None:
+            self._last_connection = current
+            return True
+        
+        changed = (
+            current.connection_type != self._last_connection.connection_type or
+            current.name != self._last_connection.name or
+            current.is_connected != self._last_connection.is_connected
+        )
+        
+        self._last_connection = current
+        return changed
+    
+    def get_connection_key(self) -> str:
+        """Get a unique key for the current connection (for storage)."""
+        conn = self.get_current_connection()
+        if not conn.is_connected:
+            return "Disconnected"
+        return f"{conn.connection_type}:{conn.name}"
