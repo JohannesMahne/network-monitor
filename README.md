@@ -1,6 +1,6 @@
 # Network Monitor for macOS
 
-A lightweight menu bar application that monitors network traffic, tracks daily usage per connection (WiFi/Ethernet), displays real-time speeds, discovers devices on your network (like Fing), and logs connectivity issues.
+A lightweight menu bar application that monitors network traffic, tracks daily usage per connection (WiFi/Ethernet), displays real-time speeds, discovers devices on your network, and logs connectivity issues.
 
 ## Features
 
@@ -10,7 +10,7 @@ A lightweight menu bar application that monitors network traffic, tracks daily u
   - Real-time process-level traffic monitoring
   - Shows bytes in/out per application
   - Identifies apps by friendly names (Chrome, Slack, Spotify, etc.)
-- **Network Device Discovery** (Fing-like): Discovers and tracks devices on your local network
+- **Network Device Discovery**: Discovers and tracks devices on your local network
   - Shows online/offline status with device type icons
   - Identifies device vendors (Apple, Samsung, Google, etc.)
   - Custom device naming with persistence
@@ -42,7 +42,6 @@ A lightweight menu bar application that monitors network traffic, tracks daily u
 
 - macOS (tested on macOS 14+)
 - Python 3.9+
-- **Optional**: [Fing CLI](https://www.fing.com/desktop/) for enhanced device recognition
 
 ## Installation
 
