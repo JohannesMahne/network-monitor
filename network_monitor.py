@@ -12,6 +12,7 @@ import sys
 import fcntl
 import tempfile
 import atexit
+import json
 from datetime import datetime
 from typing import Optional, List, Tuple
 from collections import deque
@@ -154,11 +155,12 @@ class NetworkMonitorApp(rumps.App):
         self._current_latency = None
         self._latency_samples = []
         
-        # History for sparkline graphs
+        # History for sparkline graphs (persisted across restarts)
         self._upload_history: deque = deque(maxlen=self.HISTORY_SIZE)
         self._download_history: deque = deque(maxlen=self.HISTORY_SIZE)
         self._quality_history: deque = deque(maxlen=self.HISTORY_SIZE)
         self._latency_history: deque = deque(maxlen=self.HISTORY_SIZE)
+        self._load_sparkline_history()  # Load persisted history
         
         # Adaptive update intervals
         self._activity_samples: deque = deque(maxlen=INTERVALS.ACTIVITY_CHECK_SAMPLES)
@@ -1374,6 +1376,7 @@ class NetworkMonitorApp(rumps.App):
         self._upload_history.clear()
         self._download_history.clear()
         self._latency_history.clear()
+        self._quality_history.clear()
         rumps.notification(
             title="Network Monitor",
             subtitle="Session Reset",
@@ -2097,10 +2100,49 @@ Built with Python, rumps, and matplotlib.
         except Exception as e:
             logger.debug(f"Sparkline cleanup error: {e}")
     
+    def _load_sparkline_history(self) -> None:
+        """Load sparkline history from persistent storage."""
+        history_file = self.store.data_dir / "sparkline_history.json"
+        try:
+            if history_file.exists():
+                with open(history_file, 'r') as f:
+                    data = json.load(f)
+                
+                # Load each history, respecting maxlen
+                for val in data.get('upload', []):
+                    self._upload_history.append(val)
+                for val in data.get('download', []):
+                    self._download_history.append(val)
+                for val in data.get('quality', []):
+                    self._quality_history.append(val)
+                for val in data.get('latency', []):
+                    self._latency_history.append(val)
+                
+                logger.debug(f"Loaded sparkline history: {len(self._quality_history)} quality samples")
+        except Exception as e:
+            logger.debug(f"Could not load sparkline history: {e}")
+    
+    def _save_sparkline_history(self) -> None:
+        """Save sparkline history to persistent storage."""
+        history_file = self.store.data_dir / "sparkline_history.json"
+        try:
+            data = {
+                'upload': list(self._upload_history),
+                'download': list(self._download_history),
+                'quality': list(self._quality_history),
+                'latency': list(self._latency_history),
+            }
+            with open(history_file, 'w') as f:
+                json.dump(data, f)
+            logger.debug("Saved sparkline history")
+        except Exception as e:
+            logger.debug(f"Could not save sparkline history: {e}")
+    
     def _quit(self, _):
         """Quit the application."""
         logger.info("Application shutting down...")
         self._running = False
+        self._save_sparkline_history()  # Persist graph history
         self.store.flush()  # Save any pending data
         self._cleanup_temp_files()
         logger.info("Shutdown complete")
