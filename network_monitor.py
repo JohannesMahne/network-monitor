@@ -826,8 +826,27 @@ class NetworkMonitorApp(rumps.App):
             image = NSImage.alloc().initWithContentsOfFile_(image_path)
             if image:
                 menu_item._menuitem.setImage_(image)
+                # Force the menu to update if it's visible
+                self._refresh_menu_display()
         except Exception as e:
             logger.debug(f"Failed to set menu image: {e}")  # Non-critical UI feature
+    
+    def _refresh_menu_display(self):
+        """Force the menu to refresh its display while open."""
+        try:
+            # Access rumps internal status bar and its menu
+            if hasattr(self, '_nsstatusitem') and self._nsstatusitem:
+                ns_menu = self._nsstatusitem.menu()
+                if ns_menu:
+                    # Force menu update
+                    ns_menu.update()
+                    # Also try to redisplay menu items
+                    for i in range(ns_menu.numberOfItems()):
+                        item = ns_menu.itemAtIndex_(i)
+                        if item and item.view():
+                            item.view().setNeedsDisplay_(True)
+        except Exception:
+            pass  # Non-critical - menu will update when reopened
     
     def _update_sparklines(self, stats):
         """Update the sparkline graph display with matplotlib line graphs."""
