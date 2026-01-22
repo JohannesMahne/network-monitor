@@ -22,7 +22,7 @@ from monitor.connection import ConnectionDetector, ConnectionInfo
 from monitor.issues import IssueDetector, IssueType
 from monitor.scanner import NetworkScanner, NetworkDevice
 from monitor.traffic import TrafficMonitor, format_traffic_bytes
-from storage.json_store import JsonStore
+from storage.sqlite_store import SQLiteStore
 from storage.settings import get_settings_manager, ConnectionBudget, BudgetPeriod
 from service.launch_agent import get_launch_agent_manager
 from config import setup_logging, get_logger, INTERVALS, THRESHOLDS, STORAGE, COLORS, UI
@@ -137,7 +137,7 @@ class NetworkMonitorApp(rumps.App):
         self.issue_detector = IssueDetector()
         self.network_scanner = NetworkScanner()
         self.traffic_monitor = TrafficMonitor()
-        self.store = JsonStore()
+        self.store = SQLiteStore()
         self.settings = get_settings_manager(self.store.data_dir)
         
         # Track session data
@@ -277,12 +277,21 @@ class NetworkMonitorApp(rumps.App):
         self.menu_export.add(rumps.MenuItem("Export as CSV...", callback=self._export_csv))
         self.menu_export.add(rumps.MenuItem("Export as JSON...", callback=self._export_json))
         
+        # Backup/Restore submenu
+        self.menu_backup = rumps.MenuItem("Backup & Restore")
+        self.menu_backup.add(rumps.MenuItem("Create Backup...", callback=self._create_backup))
+        self.menu_backup.add(rumps.MenuItem("Restore from Backup...", callback=self._restore_backup))
+        self.menu_backup.add(rumps.separator)
+        self.menu_backup.add(rumps.MenuItem("Database Info...", callback=self._show_database_info))
+        self.menu_backup.add(rumps.MenuItem("Run Cleanup Now", callback=self._run_cleanup))
+        
         self.menu_actions.add(self.menu_rescan)
         self.menu_actions.add(rumps.separator)
         self.menu_actions.add(self.menu_reset_session)
         self.menu_actions.add(self.menu_reset_today)
         self.menu_actions.add(rumps.separator)
         self.menu_actions.add(self.menu_export)
+        self.menu_actions.add(self.menu_backup)
         self.menu_actions.add(self.menu_data_location)
         
         # === BUILD MENU (standard macOS layout) ===
@@ -1852,6 +1861,164 @@ class NetworkMonitorApp(rumps.App):
             logger.error(f"JSON export error: {e}", exc_info=True)
             rumps.alert("Export Error", f"Could not export data: {e}")
     
+    # === Backup/Restore Methods ===
+    
+    def _create_backup(self, _):
+        """Create a database backup."""
+        from datetime import datetime
+        
+        # Get backup file path
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        default_filename = f"network_monitor_backup_{timestamp}.db"
+        
+        try:
+            import subprocess
+            result = subprocess.run(
+                ['osascript', '-e',
+                 f'tell application "System Events" to return POSIX path of (choose file name default name "{default_filename}" default location (path to desktop folder))'],
+                capture_output=True, text=True, timeout=60
+            )
+            
+            if result.returncode != 0 or not result.stdout.strip():
+                return  # User cancelled
+            
+            filepath = Path(result.stdout.strip())
+            if not filepath.suffix:
+                filepath = filepath.with_suffix('.db')
+        except Exception as e:
+            logger.error(f"File dialog error: {e}")
+            # Fallback to default location
+            filepath = Path.home() / "Desktop" / default_filename
+        
+        try:
+            backup_path = self.store.backup(filepath)
+            
+            rumps.notification(
+                title="Network Monitor",
+                subtitle="Backup Complete",
+                message=f"Database backed up to {backup_path.name}"
+            )
+            logger.info(f"Backup created: {backup_path}")
+            
+            # Open in Finder
+            import subprocess
+            subprocess.run(['open', '-R', str(backup_path)])
+            
+        except Exception as e:
+            logger.error(f"Backup error: {e}", exc_info=True)
+            rumps.alert("Backup Error", f"Could not create backup: {e}")
+    
+    def _restore_backup(self, _):
+        """Restore database from a backup file."""
+        # Confirm the action
+        response = rumps.alert(
+            title="Restore from Backup",
+            message="This will replace ALL current data with the backup.\n\nAre you sure you want to continue?",
+            ok="Choose Backup...",
+            cancel="Cancel"
+        )
+        
+        if response != 1:
+            return
+        
+        try:
+            import subprocess
+            result = subprocess.run(
+                ['osascript', '-e',
+                 'tell application "System Events" to return POSIX path of (choose file of type {"db", "sqlite", "sqlite3"} with prompt "Select backup file to restore")'],
+                capture_output=True, text=True, timeout=60
+            )
+            
+            if result.returncode != 0 or not result.stdout.strip():
+                return  # User cancelled
+            
+            backup_path = Path(result.stdout.strip())
+            
+            # Double-confirm
+            confirm = rumps.alert(
+                title="Confirm Restore",
+                message=f"Restore from:\n{backup_path.name}\n\nAll current data will be replaced. This cannot be undone.",
+                ok="Restore",
+                cancel="Cancel"
+            )
+            
+            if confirm != 1:
+                return
+            
+            self.store.restore(backup_path)
+            
+            rumps.notification(
+                title="Network Monitor",
+                subtitle="Restore Complete",
+                message=f"Data restored from {backup_path.name}"
+            )
+            logger.info(f"Database restored from: {backup_path}")
+            
+        except Exception as e:
+            logger.error(f"Restore error: {e}", exc_info=True)
+            rumps.alert("Restore Error", f"Could not restore backup: {e}")
+    
+    def _show_database_info(self, _):
+        """Show database statistics and information."""
+        try:
+            stats = self.store.get_database_stats()
+            
+            info_lines = [
+                "Database Statistics",
+                "",
+                f"Traffic Records: {stats.get('traffic_records', 0):,}",
+                f"Issues Logged: {stats.get('issues_count', 0):,}",
+                f"Known Devices: {stats.get('devices_count', 0):,}",
+                "",
+                f"Date Range: {stats.get('oldest_date', 'N/A')} to {stats.get('newest_date', 'N/A')}",
+                "",
+                f"Database Size: {stats.get('file_size_mb', 0):.2f} MB",
+                "",
+                f"Retention Policy: {STORAGE.RETENTION_DAYS} days",
+                f"Location: {self.store.get_data_file_path()}"
+            ]
+            
+            rumps.alert(
+                title="Database Info",
+                message="\n".join(info_lines),
+                ok="OK"
+            )
+        except Exception as e:
+            logger.error(f"Database info error: {e}", exc_info=True)
+            rumps.alert("Error", f"Could not get database info: {e}")
+    
+    def _run_cleanup(self, _):
+        """Manually run data cleanup."""
+        response = rumps.alert(
+            title="Run Cleanup",
+            message=f"This will delete data older than {STORAGE.RETENTION_DAYS} days.\n\nContinue?",
+            ok="Run Cleanup",
+            cancel="Cancel"
+        )
+        
+        if response != 1:
+            return
+        
+        try:
+            deleted = self.store.cleanup_old_data()
+            
+            if deleted > 0:
+                rumps.notification(
+                    title="Network Monitor",
+                    subtitle="Cleanup Complete",
+                    message=f"Removed {deleted} old records"
+                )
+            else:
+                rumps.notification(
+                    title="Network Monitor",
+                    subtitle="Cleanup Complete",
+                    message="No old data to remove"
+                )
+            logger.info(f"Manual cleanup completed: {deleted} records removed")
+        except Exception as e:
+            logger.error(f"Cleanup error: {e}", exc_info=True)
+            rumps.alert("Cleanup Error", f"Could not run cleanup: {e}")
+    
     def _set_title_display(self, mode: str):
         """Set the title display mode."""
         self.settings.set_title_display(mode)
@@ -1871,7 +2038,7 @@ class NetworkMonitorApp(rumps.App):
     
     def _show_about(self, _):
         """Show About dialog."""
-        about_text = """Network Monitor v1.1
+        about_text = """Network Monitor v1.2
 
 A lightweight macOS menu bar app for monitoring network activity.
 
@@ -1883,9 +2050,11 @@ Features:
 • Data budgets per connection
 • Daily/weekly/monthly statistics
 • Launch at login support
+• SQLite database with backup/restore
 
-v1.1: Added structured logging, config module,
-subprocess caching, event bus architecture.
+v1.2: Migrated to SQLite storage for better
+performance. Added automatic cleanup, backup
+and restore functionality.
 
 Data is stored locally in:
 ~/.network-monitor/

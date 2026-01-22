@@ -901,16 +901,16 @@ dependencies = [
 - [x] Add network quality score (0-100 based on latency, jitter, consistency)
 - [x] Create data export functionality (CSV and JSON export with file dialog)
 
-### Phase 5: Storage (1-2 weeks)
-- [ ] Migrate to SQLite
-- [ ] Add automatic cleanup
-- [ ] Implement backup/restore
+### Phase 5: Storage (1-2 weeks) ✅ COMPLETED
+- [x] Migrate to SQLite (`storage/sqlite_store.py`)
+- [x] Add automatic cleanup (runs on startup, configurable retention period)
+- [x] Implement backup/restore (backup, restore, import/export JSON)
 
-### Phase 6: Polish (1 week)
-- [ ] Complete type hints
-- [ ] Add docstrings
-- [ ] Set up pre-commit hooks
-- [ ] Update documentation
+### Phase 6: Polish (1 week) ✅ COMPLETED
+- [x] Complete type hints (improved across monitor/, storage/, config/)
+- [x] Add docstrings (Google-style docstrings with examples)
+- [x] Set up pre-commit hooks (black, ruff, mypy, bandit)
+- [x] Update documentation (README.md with v1.2 features)
 
 ---
 

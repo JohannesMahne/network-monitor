@@ -81,17 +81,23 @@ class StorageConfig:
     """Storage and file-related configuration."""
     # Directory and file names
     DATA_DIR_NAME: str = ".network-monitor"
-    STATS_FILE: str = "stats.json"
+    STATS_FILE: str = "stats.json"  # Legacy JSON storage
     SETTINGS_FILE: str = "settings.json"
     DEVICES_FILE: str = "device_names.json"
     LOG_FILE: str = "network_monitor.log"
     STDOUT_LOG: str = "stdout.log"
     STDERR_LOG: str = "stderr.log"
     
+    # SQLite database
+    DATABASE_FILE: str = "network_monitor.db"
+    
     # Data retention
     RETENTION_DAYS: int = 90
     HISTORY_DAYS_DEFAULT: int = 7
     MONTHLY_DAYS: int = 30
+    
+    # Automatic cleanup
+    CLEANUP_ON_STARTUP: bool = True  # Run cleanup when app starts
     
     # Log rotation
     LOG_MAX_BYTES: int = 5_000_000  # 5MB
@@ -103,6 +109,10 @@ class StorageConfig:
     
     # Sparkline cleanup
     SPARKLINE_MAX_AGE_SECONDS: int = 300  # 5 minutes
+    
+    # Backup settings
+    BACKUP_DIR: str = "backups"
+    MAX_BACKUPS: int = 5  # Keep last N backups
 
 
 @dataclass(frozen=True)

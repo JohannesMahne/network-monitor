@@ -1,40 +1,42 @@
 # Network Monitor for macOS
 
-A menu bar application that monitors network traffic, tracks daily usage per connection (WiFi/Ethernet), displays real-time speeds, discovers devices on your network (like Fing), and logs connectivity issues.
+A lightweight menu bar application that monitors network traffic, tracks daily usage per connection (WiFi/Ethernet), displays real-time speeds, discovers devices on your network (like Fing), and logs connectivity issues.
 
 ## Features
 
-- **Menu Bar Display**: Shows current upload/download speeds and device count in the macOS menu bar
+### Core Monitoring
+- **Menu Bar Display**: Shows latency, speeds, or device count with color-coded status icon
 - **Traffic Breakdown by App**: See which applications are using your bandwidth
   - Real-time process-level traffic monitoring
   - Shows bytes in/out per application
   - Identifies apps by friendly names (Chrome, Slack, Spotify, etc.)
-  - Manual refresh option for instant updates
 - **Network Device Discovery** (Fing-like): Discovers and tracks devices on your local network
-  - Shows online/offline status
+  - Shows online/offline status with device type icons
   - Identifies device vendors (Apple, Samsung, Google, etc.)
-  - Resolves hostnames when available
-  - Tracks when devices were first/last seen
+  - Custom device naming with persistence
+  - mDNS/Bonjour service discovery
+
+### Statistics & History
 - **Per-Connection Tracking**: Tracks usage separately for each WiFi network (by SSID) and Ethernet
 - **Daily Statistics**: Persists daily totals across app restarts
-- **Speed Metrics**:
-  - Current speed (real-time)
-  - Today's total usage
-- **Latency Monitor**:
-  - Real-time ping to 8.8.8.8 (Google DNS)
-  - Color-coded status: 🟢 Good (<50ms), 🟡 OK (50-100ms), 🔴 Poor (>100ms)
-  - Running average displayed
-- **Usage History**:
-  - Weekly totals
-  - Monthly totals (30 days)
-  - Daily breakdown (last 7 days)
-  - Per-connection history with daily stats
-- **Issue Detection**:
-  - Connection drops
-  - High latency alerts
-  - Speed drop detection
-- **Connection History**: View usage per network connection
-- **Launch at Login**: Toggle auto-start in Settings menu (like other macOS apps)
+- **Usage History**: Weekly, monthly, and per-connection breakdowns
+- **Data Budgets**: Set data limits per connection with notifications
+
+### Network Quality
+- **Latency Monitor**: Real-time ping with color-coded status
+- **Network Quality Score**: 0-100% score based on latency, jitter, and consistency
+- **VPN Detection**: Automatically detects active VPN connections
+- **Issue Detection**: Connection drops, high latency, speed drops, quality degradation
+
+### Data Management (v1.2)
+- **SQLite Storage**: Efficient storage for historical data queries
+- **Automatic Cleanup**: Configurable data retention (default: 90 days)
+- **Backup & Restore**: Create and restore database backups
+- **Export**: Export data to CSV or JSON format
+
+### System Integration
+- **Launch at Login**: Toggle auto-start via LaunchAgent
+- **Adaptive Updates**: Faster updates during high activity, slower when idle
 
 ## Requirements
 
@@ -144,72 +146,78 @@ Click the menu bar item to see:
 
 ## Data Storage
 
-Statistics are stored in JSON format at:
+Statistics are stored in SQLite format (v1.2+) at:
 ```
-~/.network-monitor/stats.json
+~/.network-monitor/network_monitor.db
 ```
 
-Data is organized by date and connection:
-```json
-{
-  "2026-01-21": {
-    "WiFi:HomeNetwork": {
-      "bytes_sent": 1234567890,
-      "bytes_recv": 9876543210,
-      "peak_upload": 5242880,
-      "peak_download": 52428800,
-      "issues": []
-    }
-  }
-}
-```
+The database includes:
+- **traffic_stats**: Daily traffic data per connection
+- **issues**: Network events and issues log
+- **devices**: Known network devices with custom names
+
+### Migration from JSON
+
+When upgrading from v1.1, existing JSON data is automatically migrated to SQLite on first run. The old `stats.json` file is renamed to `stats.json.bak`.
+
+### Backup & Restore
+
+From the menu: **Actions → Backup & Restore**
+- **Create Backup**: Save database to a file
+- **Restore from Backup**: Restore from a previous backup
+- **Database Info**: View statistics about stored data
+- **Run Cleanup Now**: Manually remove data older than retention period
+
+### Export Formats
+
+Export data via **Actions → Export Data**:
+- **CSV**: Daily totals for spreadsheet analysis
+- **JSON**: Full data export including devices and issues
 
 ## Project Structure
 
 ```
 network-monitor/
-├── network_monitor.py    # Main application entry point
-├── app/                  # Application architecture (v1.1)
+├── network_monitor.py      # Main application entry point
+├── app/                    # Application architecture
 │   ├── __init__.py
-│   ├── events.py         # Event bus for pub/sub communication
-│   ├── dependencies.py   # Dependency injection container
-│   ├── controller.py     # Business logic orchestration
+│   ├── events.py           # Event bus for pub/sub communication
+│   ├── dependencies.py     # Dependency injection container
+│   ├── controller.py       # Business logic orchestration
 │   └── views/
-│       ├── icons.py      # Icon and sparkline generation
-│       └── menu_builder.py  # Menu construction helpers
-├── config/               # Configuration module (v1.1)
+│       ├── icons.py        # Icon and sparkline generation
+│       └── menu_builder.py # Menu construction helpers
+├── config/                 # Configuration module
 │   ├── __init__.py
-│   ├── constants.py      # Centralized configuration values
-│   ├── exceptions.py     # Custom exception hierarchy
-│   ├── logging_config.py # Structured logging setup
-│   └── subprocess_cache.py  # Cached subprocess execution
-├── monitor/
+│   ├── constants.py        # Centralized configuration values
+│   ├── exceptions.py       # Custom exception hierarchy
+│   ├── logging_config.py   # Structured logging setup
+│   └── subprocess_cache.py # Cached subprocess execution
+├── monitor/                # Data collection modules
 │   ├── __init__.py
-│   ├── connection.py     # WiFi/Ethernet detection
-│   ├── issues.py         # Issue detection
-│   ├── network.py        # Network stats collection
-│   ├── scanner.py        # Network device discovery (Fing-like)
-│   ├── traffic.py        # Traffic breakdown by process
-│   └── utils.py          # Shared utility functions
-├── storage/
+│   ├── connection.py       # WiFi/Ethernet/VPN detection
+│   ├── issues.py           # Issue detection and logging
+│   ├── network.py          # Network stats collection
+│   ├── scanner.py          # Network device discovery
+│   ├── traffic.py          # Traffic breakdown by process
+│   └── utils.py            # Shared utility functions
+├── storage/                # Data persistence
 │   ├── __init__.py
-│   ├── json_store.py     # JSON persistence with history
-│   └── settings.py       # Application settings management
+│   ├── sqlite_store.py     # SQLite storage (v1.2+)
+│   ├── json_store.py       # Legacy JSON storage
+│   └── settings.py         # Application settings
 ├── service/
 │   ├── __init__.py
-│   └── launch_agent.py   # macOS Launch Agent for auto-start
-├── tests/
+│   └── launch_agent.py     # macOS LaunchAgent management
+├── tests/                  # Test suite
 │   ├── __init__.py
-│   ├── conftest.py       # Pytest fixtures
-│   ├── mocks.py          # Comprehensive mock implementations
-│   ├── test_app.py       # Tests for app module
-│   ├── test_config.py    # Tests for config module
-│   ├── test_json_store.py
-│   ├── test_network.py
-│   └── test_scanner.py
-├── pyproject.toml        # Project configuration
+│   ├── conftest.py         # Pytest fixtures
+│   ├── mocks.py            # Mock implementations
+│   └── test_*.py           # Test modules
+├── pyproject.toml          # Project & tool configuration
+├── .pre-commit-config.yaml # Pre-commit hooks
 ├── requirements.txt
-├── requirements-dev.txt  # Development dependencies
+├── requirements-dev.txt
 ├── README.md
 └── run.sh
 ```
@@ -221,10 +229,36 @@ network-monitor/
 ```bash
 # Create virtual environment
 python3 -m venv venv
-source venv/activate
+source venv/bin/activate
 
 # Install dependencies including dev tools
 pip install -r requirements-dev.txt
+
+# Install pre-commit hooks
+pre-commit install
+```
+
+### Code Quality Tools
+
+The project uses modern Python tooling configured in `pyproject.toml`:
+
+- **Black**: Code formatting (line length: 100)
+- **Ruff**: Fast linting (replaces flake8, isort, pyupgrade)
+- **MyPy**: Static type checking
+- **Bandit**: Security scanning
+
+```bash
+# Format code
+black .
+
+# Run linter with auto-fix
+ruff check --fix .
+
+# Type check
+mypy monitor storage service config app
+
+# Run all pre-commit hooks
+pre-commit run --all-files
 ```
 
 ### Running Tests
@@ -243,21 +277,16 @@ pytest --cov=monitor --cov=storage --cov=service --cov-report=html
 pytest tests/test_network.py -v
 ```
 
-### Type Checking
-
-```bash
-# Run mypy for type checking
-mypy network_monitor.py
-```
-
 ### Verification Checklist
 
 After making changes, verify:
 
-- Application starts without errors: `python network_monitor.py`
-- All display modes work (latency, speed, session, devices)
-- Device scanning works and shows vendors
-- Tests pass: `pytest`
+1. Pre-commit hooks pass: `pre-commit run --all-files`
+2. Application starts without errors: `python network_monitor.py`
+3. All display modes work (latency, speed, session, devices, quality)
+4. Device scanning works and shows vendors
+5. Tests pass: `pytest`
+6. No type errors: `mypy monitor storage`
 
 ## Troubleshooting
 
