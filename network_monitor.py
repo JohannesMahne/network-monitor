@@ -38,11 +38,22 @@ info["LSUIElement"] = "1"
 
 # Global callback helper for MenuAwareTimer - defined once at module level
 _TimerCallbackHelper = None
+_TimerCallbackHelperLock = threading.Lock()
 
 def _get_timer_callback_helper():
-    """Get or create the global callback helper class."""
+    """Get or create the global callback helper class (thread-safe)."""
     global _TimerCallbackHelper
-    if _TimerCallbackHelper is None:
+    
+    # Fast path - already created
+    if _TimerCallbackHelper is not None:
+        return _TimerCallbackHelper
+    
+    # Slow path - need to create (with lock to avoid race condition)
+    with _TimerCallbackHelperLock:
+        # Double-check after acquiring lock
+        if _TimerCallbackHelper is not None:
+            return _TimerCallbackHelper
+        
         from Foundation import NSObject
         
         class _MenuAwareTimerHelper(NSObject):
@@ -58,6 +69,7 @@ def _get_timer_callback_helper():
                         pass
         
         _TimerCallbackHelper = _MenuAwareTimerHelper
+    
     return _TimerCallbackHelper
 
 
