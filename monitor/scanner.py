@@ -306,13 +306,24 @@ class OUIDatabase:
     _vendors: Dict[str, str] = {}
     _loaded = False
     
-    # Possible paths for OUI database
+    # Possible paths for OUI database (version-agnostic)
     OUI_PATHS = [
-        "/opt/homebrew/Cellar/arp-scan/1.10.0/share/arp-scan/ieee-oui.txt",
         "/opt/homebrew/share/arp-scan/ieee-oui.txt",
         "/usr/local/share/arp-scan/ieee-oui.txt",
         "/usr/share/arp-scan/ieee-oui.txt",
+        # Fallback: search in Cellar for any version
     ]
+
+    @classmethod
+    def _find_cellar_oui(cls) -> list:
+        """Find OUI database in Homebrew Cellar (any version)."""
+        cellar_base = Path("/opt/homebrew/Cellar/arp-scan")
+        if cellar_base.exists():
+            for version_dir in sorted(cellar_base.iterdir(), reverse=True):
+                oui_path = version_dir / "share" / "arp-scan" / "ieee-oui.txt"
+                if oui_path.exists():
+                    return [str(oui_path)]
+        return []
     
     def __new__(cls):
         if cls._instance is None:
@@ -325,7 +336,10 @@ class OUIDatabase:
         if self._loaded:
             return
         
-        for path in self.OUI_PATHS:
+        # Combine static paths with dynamic Cellar search
+        all_paths = self.OUI_PATHS + self._find_cellar_oui()
+        
+        for path in all_paths:
             try:
                 if Path(path).exists():
                     with open(path, 'r', encoding='utf-8', errors='ignore') as f:

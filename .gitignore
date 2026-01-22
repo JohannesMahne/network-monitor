@@ -29,6 +29,7 @@ env/
 # IDE
 .idea/
 .vscode/
+.cursor/
 *.swp
 *.swo
 *~
@@ -40,6 +41,9 @@ env/
 htmlcov/
 .tox/
 .nox/
+
+# Type checking
+.mypy_cache/
 
 # Temp files
 *.tmp
