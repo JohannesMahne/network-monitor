@@ -1007,13 +1007,28 @@ class SQLiteStore:
     
     # === Device Management Methods ===
     
+    # Whitelist of valid device table columns to prevent SQL injection
+    _DEVICE_COLUMNS = frozenset({
+        'custom_name', 'hostname', 'vendor', 'device_type',
+        'model_hint', 'os_hint', 'first_seen', 'last_seen', 'last_ip'
+    })
+    
     def save_device(self, mac_address: str, **kwargs) -> None:
         """Save or update a device record.
         
         Args:
             mac_address: Device MAC address (primary key)
-            **kwargs: Device attributes to update
+            **kwargs: Device attributes to update (must be valid column names)
+        
+        Raises:
+            ValueError: If an invalid column name is provided
         """
+        # Validate column names against whitelist to prevent SQL injection
+        invalid_cols = set(kwargs.keys()) - self._DEVICE_COLUMNS
+        if invalid_cols:
+            logger.warning(f"Invalid device columns ignored: {invalid_cols}")
+            kwargs = {k: v for k, v in kwargs.items() if k in self._DEVICE_COLUMNS}
+        
         with self._lock:
             try:
                 with self._connection() as conn:
@@ -1030,23 +1045,24 @@ class SQLiteStore:
                         values = []
                         for key, value in kwargs.items():
                             if value is not None:
-                                updates.append(f"{key} = ?")
+                                # Column names are validated above
+                                updates.append(f"{key} = ?")  # nosec B608
                                 values.append(value)
                         
                         if updates:
                             values.append(mac_address)
                             conn.execute(
-                                f"UPDATE devices SET {', '.join(updates)} WHERE mac_address = ?",
+                                f"UPDATE devices SET {', '.join(updates)} WHERE mac_address = ?",  # nosec B608
                                 values
                             )
                     else:
-                        # Insert new device
+                        # Insert new device - column names validated above
                         columns = ["mac_address"] + list(kwargs.keys())
                         placeholders = ["?"] * len(columns)
                         values = [mac_address] + list(kwargs.values())
                         
                         conn.execute(
-                            f"INSERT INTO devices ({', '.join(columns)}) VALUES ({', '.join(placeholders)})",
+                            f"INSERT INTO devices ({', '.join(columns)}) VALUES ({', '.join(placeholders)})",  # nosec B608
                             values
                         )
             except sqlite3.Error as e:

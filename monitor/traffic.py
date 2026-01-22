@@ -335,9 +335,9 @@ class TrafficMonitor:
                         if 'ESTABLISHED' in line or '->' in line or 'LISTEN' not in line:
                             process_connections[proc_name] += 1
         except subprocess.TimeoutExpired:
-            pass
+            pass  # nosec B110 - lsof timeout expected
         except Exception:
-            pass
+            pass  # nosec B110 - Connection enumeration is best-effort
         
         return process_connections
     

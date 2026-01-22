@@ -78,7 +78,7 @@ class SingletonLock:
                 fcntl.flock(self._lock_fd.fileno(), fcntl.LOCK_UN)
                 self._lock_fd.close()
             except Exception:
-                pass
+                pass  # nosec B110 - Cleanup code, safe to ignore errors
             self._lock_fd = None
 
 
@@ -555,7 +555,7 @@ class NetworkMonitorApp(rumps.App):
             self.icon = icon_path
         except Exception as e:
             # Fallback to emoji if icon creation fails
-            pass
+            logger.debug(f"Icon creation failed, using fallback: {e}")
         
         # Format title based on display mode (text only, icon provides color)
         if display_mode == "latency":
@@ -721,7 +721,8 @@ class NetworkMonitorApp(rumps.App):
         temp_dir.mkdir(exist_ok=True)
         
         # Use hash of values for filename to enable caching
-        val_hash = hashlib.md5(str(values).encode()).hexdigest()[:8]
+        # nosec B324 - MD5 used for cache key, not security
+        val_hash = hashlib.md5(str(values).encode(), usedforsecurity=False).hexdigest()[:8]
         img_path = temp_dir / f'spark_{color.replace("#", "")}_{val_hash}.png'
         
         img.save(str(img_path), 'PNG')
@@ -763,7 +764,8 @@ class NetworkMonitorApp(rumps.App):
         temp_dir = Path(tempfile.gettempdir()) / STORAGE.SPARKLINE_TEMP_DIR
         temp_dir.mkdir(exist_ok=True)
         
-        val_hash = hashlib.md5(str(values).encode()).hexdigest()[:8]
+        # nosec B324 - MD5 used for cache key, not security
+        val_hash = hashlib.md5(str(values).encode(), usedforsecurity=False).hexdigest()[:8]
         img_path = temp_dir / f'spark_{color.replace("#", "")}_{val_hash}.png'
         
         fig.savefig(img_path, transparent=True, dpi=dpi, pad_inches=0)
@@ -779,7 +781,7 @@ class NetworkMonitorApp(rumps.App):
             if image:
                 menu_item._menuitem.setImage_(image)
         except Exception as e:
-            pass  # Silently fail if image can't be set
+            logger.debug(f"Failed to set menu image: {e}")  # Non-critical UI feature
     
     def _update_sparklines(self, stats):
         """Update the sparkline graph display with matplotlib line graphs."""
@@ -2118,7 +2120,7 @@ def main():
                 ok="OK"
             )
         except Exception:
-            pass  # If alert fails, we've already printed to stderr
+            pass  # nosec B110 - If alert fails, we've already printed to stderr
         sys.exit(1)
     
     # Register lock release on exit

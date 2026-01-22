@@ -523,7 +523,7 @@ class NetworkScanner:
                         if mac and mac != "00:00:00:00:00:00":
                             own_macs.add(mac)
         except Exception:
-            pass
+            pass  # nosec B110 - Best effort MAC detection
         return own_macs
     
     def set_device_name(self, mac_address: str, name: str) -> None:
@@ -647,7 +647,7 @@ class NetworkScanner:
                                 discovered[instance_name][1].append(service_type)
             
             except Exception:
-                pass
+                pass  # nosec B110 - mDNS discovery is best-effort
         
         return discovered
     
@@ -659,7 +659,7 @@ class NetworkScanner:
             ip = socket.gethostbyname(hostname)
             return ip
         except Exception:
-            pass
+            pass  # nosec B110 - DNS resolution is best-effort
         return None
     
     

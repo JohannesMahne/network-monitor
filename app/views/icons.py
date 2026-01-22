@@ -185,7 +185,8 @@ class IconGenerator:
             color = self._get_color_hex(color)
         
         # Create cache key from values hash
-        val_hash = hashlib.md5(str(values).encode()).hexdigest()[:8]
+        # nosec B324 - MD5 used for cache key, not security
+        val_hash = hashlib.md5(str(values).encode(), usedforsecurity=False).hexdigest()[:8]
         cache_key = f"spark_{color.replace('#', '')}_{val_hash}"
         
         if cache_key in self._cache:

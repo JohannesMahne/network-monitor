@@ -290,7 +290,7 @@ class IssueDetector:
                 if match:
                     return float(match.group(1))
         except Exception:
-            pass
+            pass  # nosec B110 - Ping failures expected, return None
         return None
     
     def get_current_latency(self) -> Optional[float]:

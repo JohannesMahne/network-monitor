@@ -236,7 +236,7 @@ class MenuBuilder:
                 if image:
                     item._menuitem.setImage_(image)
             except Exception:
-                pass
+                pass  # nosec B110 - Menu image is non-critical UI feature
     
     @staticmethod
     def safe_menu_clear(menu_item: rumps.MenuItem) -> None:

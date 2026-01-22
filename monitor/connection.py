@@ -78,7 +78,7 @@ class ConnectionDetector:
                     if ssid and ssid != '<redacted>':
                         return ssid
         except Exception:
-            pass
+            pass  # nosec B110 - Fallback chain, continue to next method
         
         # Method 2: Try networksetup command (cached for 2 seconds - SSID changes slowly)
         try:
@@ -95,7 +95,7 @@ class ConnectionDetector:
                     if ssid and ssid not in ("You are not associated with an AirPort network.", "<redacted>"):
                         return ssid
         except Exception:
-            pass
+            pass  # nosec B110 - Fallback chain, continue to next method
         
         # Method 3: Try airport command (only if it exists - removed in newer macOS)
         if self._has_airport:
@@ -113,7 +113,7 @@ class ConnectionDetector:
                         if ssid and ssid != '<redacted>':
                             return ssid
             except Exception:
-                pass
+                pass  # nosec B110 - Fallback chain, continue to next method
         
         # Method 4: Check if we're connected to WiFi but SSID is private
         # (macOS 14+ hides SSID without Location Services permission)
@@ -127,7 +127,7 @@ class ConnectionDetector:
                 # WiFi is connected but SSID is hidden due to privacy
                 return "[Private Network]"
         except Exception:
-            pass
+            pass  # nosec B110 - Fallback chain, return None below
         
         return None
     
@@ -178,7 +178,7 @@ class ConnectionDetector:
                 elif f'Device: {interface}' in line:
                     return current_port
         except Exception:
-            pass
+            pass  # nosec B110 - Best effort, return "Unknown" below
         return "Unknown"
     
     def get_current_connection(self) -> ConnectionInfo:
@@ -396,5 +396,5 @@ class ConnectionDetector:
                 # If it has an IP address, it's active
                 return 'IP address:' in result.stdout and 'IP address: none' not in result.stdout.lower()
         except Exception:
-            pass
+            pass  # nosec B110 - Best effort, return False below
         return False

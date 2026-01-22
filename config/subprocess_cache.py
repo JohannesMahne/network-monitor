@@ -3,6 +3,12 @@
 Provides a caching layer for subprocess calls to reduce redundant
 system calls, along with safety checks and timing.
 
+Security Note:
+    This module is designed for a system monitoring application that requires
+    subprocess calls to macOS system utilities (arp, ping, networksetup, etc.).
+    All commands are validated against an allowlist in ALLOWED_SUBPROCESS_COMMANDS.
+    Shell=False is always used to prevent shell injection.
+
 Usage:
     from config.subprocess_cache import safe_run, get_subprocess_cache
     
@@ -13,6 +19,7 @@ Usage:
     cache = get_subprocess_cache()
     result = cache.run(['arp', '-an'], ttl=5.0)
 """
+# nosec B404 - subprocess usage is required and validated via allowlist
 import subprocess
 import time
 import threading
@@ -141,7 +148,7 @@ class SubprocessCache:
             kwargs.setdefault('text', True)
             kwargs['timeout'] = timeout
             
-            result = subprocess.run(cmd, **kwargs)
+            result = subprocess.run(cmd, **kwargs)  # nosec B603 - Commands validated via allowlist
             duration_ms = (time.time() - start_time) * 1000
             
             # Log the call
