@@ -1,0 +1,69 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "network-monitor"
+version = "1.0.0"
+description = "A macOS menu bar application for monitoring network traffic"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.9"
+authors = [
+    {name = "Johannes Mahne"}
+]
+keywords = ["network", "monitor", "macos", "menu-bar", "traffic"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: MacOS X",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: MacOS",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: System :: Networking :: Monitoring",
+]
+
+dependencies = [
+    "rumps>=0.4.0",
+    "psutil>=5.9.0",
+    "pillow>=10.0.0",
+    "matplotlib>=3.7.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "mypy>=1.0.0",
+]
+
+[project.scripts]
+network-monitor = "network_monitor:main"
+
+[project.urls]
+Homepage = "https://github.com/JohannesMahne/network-monitor"
+Repository = "https://github.com/JohannesMahne/network-monitor"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["monitor*", "storage*", "service*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short"
+
+[tool.mypy]
+python_version = "3.9"
+warn_return_any = true
+warn_unused_configs = true
+ignore_missing_imports = true
+
+[tool.coverage.run]
+source = ["monitor", "storage", "service"]
+omit = ["*/tests/*", "*/__pycache__/*"]
