@@ -618,8 +618,9 @@ class NetworkMonitorApp(rumps.App):
         else:
             self.menu_connection.title = "Disconnected"
         
-        # Speed (no icon - cleaner)
-        self.menu_speed.title = f"↑ {format_bytes(stats.upload_speed, True)}  ↓ {format_bytes(stats.download_speed, True)}"
+        # Speed (no icon - cleaner) - show up, down, and combined
+        combined_speed = stats.upload_speed + stats.download_speed
+        self.menu_speed.title = f"↑ {format_bytes(stats.upload_speed, True)}  ↓ {format_bytes(stats.download_speed, True)}  ⇅ {format_bytes(combined_speed, True)}"
         
         # Update latency display
         self._update_latency()
@@ -628,7 +629,8 @@ class NetworkMonitorApp(rumps.App):
         self._update_quality_score()
         
         today_sent, today_recv = self.store.get_today_totals()
-        self.menu_today.title = f"Today: ↑ {format_bytes(today_sent)}  ↓ {format_bytes(today_recv)}"
+        today_total = today_sent + today_recv
+        self.menu_today.title = f"Today: ↑ {format_bytes(today_sent)}  ↓ {format_bytes(today_recv)}  ⇅ {format_bytes(today_total)}"
         
         # Update budget status (with notifications)
         self._update_budget(conn, today_sent, today_recv)
@@ -982,11 +984,13 @@ class NetworkMonitorApp(rumps.App):
         """Update history section with weekly and monthly stats."""
         # Get weekly totals
         weekly = self.store.get_weekly_totals()
-        self.menu_week.title = f"Week: ↑ {format_bytes(weekly['sent'])}  ↓ {format_bytes(weekly['recv'])}"
+        week_total = weekly['sent'] + weekly['recv']
+        self.menu_week.title = f"Week: ↑ {format_bytes(weekly['sent'])}  ↓ {format_bytes(weekly['recv'])}  ⇅ {format_bytes(week_total)}"
         
         # Get monthly totals
         monthly = self.store.get_monthly_totals()
-        self.menu_month.title = f"Month: ↑ {format_bytes(monthly['sent'])}  ↓ {format_bytes(monthly['recv'])}"
+        month_total = monthly['sent'] + monthly['recv']
+        self.menu_month.title = f"Month: ↑ {format_bytes(monthly['sent'])}  ↓ {format_bytes(monthly['recv'])}  ⇅ {format_bytes(month_total)}"
         
         # Update daily breakdown submenu
         self._update_daily_history()
@@ -1023,7 +1027,8 @@ class NetworkMonitorApp(rumps.App):
             recv = day_data['recv']
             
             if sent > 0 or recv > 0:
-                title = f"{day_label}: ↑{format_bytes(sent)} ↓{format_bytes(recv)}"
+                total = sent + recv
+                title = f"{day_label}: ↑{format_bytes(sent)} ↓{format_bytes(recv)} ⇅{format_bytes(total)}"
             else:
                 title = f"{day_label}: No data"
             
@@ -1053,13 +1058,13 @@ class NetworkMonitorApp(rumps.App):
             
             # Add monthly total
             conn_menu.add(rumps.MenuItem(
-                f"Month: ↑{format_bytes(stats['sent'])} ↓{format_bytes(stats['recv'])}"
+                f"Month: ↑{format_bytes(stats['sent'])} ↓{format_bytes(stats['recv'])} ⇅{format_bytes(stats['sent'] + stats['recv'])}"
             ))
             
             # Add weekly total if available
             weekly_stats = weekly.get('by_connection', {}).get(conn_key, {'sent': 0, 'recv': 0})
             conn_menu.add(rumps.MenuItem(
-                f"Week: ↑{format_bytes(weekly_stats['sent'])} ↓{format_bytes(weekly_stats['recv'])}"
+                f"Week: ↑{format_bytes(weekly_stats['sent'])} ↓{format_bytes(weekly_stats['recv'])} ⇅{format_bytes(weekly_stats['sent'] + weekly_stats['recv'])}"
             ))
             
             # Add daily breakdown for this connection
@@ -1079,7 +1084,7 @@ class NetworkMonitorApp(rumps.App):
                 
                 if day_data['sent'] > 0 or day_data['recv'] > 0:
                     conn_menu.add(rumps.MenuItem(
-                        f"{day_label}: ↑{format_bytes(day_data['sent'])} ↓{format_bytes(day_data['recv'])}"
+                        f"{day_label}: ↑{format_bytes(day_data['sent'])} ↓{format_bytes(day_data['recv'])} ⇅{format_bytes(day_data['sent'] + day_data['recv'])}"
                     ))
             
             self.menu_connection_history.add(conn_menu)
