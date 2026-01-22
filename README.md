@@ -1,10 +1,16 @@
 # Network Monitor for macOS
 
-A lightweight menu bar application that monitors network traffic, tracks daily usage per connection (WiFi/Ethernet), displays real-time speeds, discovers devices on your network, and logs connectivity issues.
+A lightweight menu bar application that monitors network traffic, tracks daily usage per connection (WiFi/Ethernet), displays real-time speeds with live sparkline graphs, discovers devices on your network, and logs connectivity issues.
 
 ## Features
 
 ### Core Monitoring
+- **Live Sparkline Graphs**: Real-time mini graphs showing:
+  - Network quality (purple) - 0-100% score
+  - Upload speed (green)
+  - Download speed (blue)
+  - Combined traffic (pink)
+  - Latency (orange)
 - **Menu Bar Display**: Shows latency, speeds, or device count with color-coded status icon
 - **Traffic Breakdown by App**: See which applications are using your bandwidth
   - Real-time process-level traffic monitoring
@@ -28,11 +34,13 @@ A lightweight menu bar application that monitors network traffic, tracks daily u
 - **VPN Detection**: Automatically detects active VPN connections
 - **Issue Detection**: Connection drops, high latency, speed drops, quality degradation
 
-### Data Management (v1.2)
+### Data Management (v1.2+)
 - **SQLite Storage**: Efficient storage for historical data queries
 - **Automatic Cleanup**: Configurable data retention (default: 90 days)
 - **Backup & Restore**: Create and restore database backups
 - **Export**: Export data to CSV or JSON format
+- **Persistent Sparklines** (v1.3): Graph history survives app restarts
+- **Persistent Budgets** (v1.3): Data usage accumulates correctly across restarts
 
 ### System Integration
 - **Launch at Login**: Toggle auto-start via LaunchAgent

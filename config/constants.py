@@ -22,12 +22,12 @@ class Intervals:
     All interval values are in seconds unless otherwise specified.
     """
     # Main update loop
-    UPDATE_SECONDS: float = 2.0
+    UPDATE_SECONDS: float = 3.0
     
     # Adaptive update intervals (adjusts based on activity)
-    UPDATE_FAST_SECONDS: float = 1.0     # When high activity detected
-    UPDATE_NORMAL_SECONDS: float = 2.0   # Normal operation
-    UPDATE_SLOW_SECONDS: float = 5.0     # When idle/low activity
+    UPDATE_FAST_SECONDS: float = 2.0     # When high activity detected
+    UPDATE_NORMAL_SECONDS: float = 4.0   # Normal operation
+    UPDATE_SLOW_SECONDS: float = 6.0     # When idle/low activity
     
     # Activity thresholds for adaptive intervals (bytes/sec)
     ACTIVITY_HIGH_THRESHOLD: int = 100_000     # 100 KB/s = fast updates

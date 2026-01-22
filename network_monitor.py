@@ -2374,28 +2374,30 @@ class NetworkMonitorApp(rumps.App):
     
     def _show_about(self, _):
         """Show About dialog."""
-        about_text = """Network Monitor v1.2
+        about_text = """Network Monitor v1.3
 
 A lightweight macOS menu bar app for monitoring network activity.
 
 Features:
-• Real-time upload/download speed
-• Latency monitoring with history graphs
+• Live sparkline graphs (quality, speed, latency)
+• Real-time upload/download speed tracking
+• Network quality score (0-100%)
+• Per-connection data budgets with alerts
 • Network device discovery
 • Per-app bandwidth tracking
-• Data budgets per connection
 • Daily/weekly/monthly statistics
-• Launch at login support
+• Persistent history across restarts
 • SQLite database with backup/restore
+• Launch at login support
 
-v1.2: Migrated to SQLite storage for better
-performance. Added automatic cleanup, backup
-and restore functionality.
+v1.3: Added live sparkline graphs with
+persistence, unique colors per metric,
+and improved data budget tracking.
 
 Data is stored locally in:
 ~/.network-monitor/
 
-Built with Python, rumps, and matplotlib.
+Built with Python, rumps, and PIL.
 
 © 2026"""
         
