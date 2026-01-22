@@ -1091,7 +1091,9 @@ class NetworkMonitorApp(rumps.App):
                 self.menu_apps.add(rumps.MenuItem("No active apps"))
                 return
             
-            self.menu_apps.title = f"Connections ({len(top_processes)})"
+            # Count total connections across all apps
+            total_connections = sum(conns for _, _, _, conns in top_processes)
+            self.menu_apps.title = f"Connections ({total_connections})"
             
             # Add top 5 directly
             for i, (name, bytes_in, bytes_out, conns) in enumerate(top_processes[:5]):
