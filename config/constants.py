@@ -35,8 +35,8 @@ class Intervals:
     ACTIVITY_CHECK_SAMPLES: int = 5            # Number of samples to average
     
     # Device scanning
-    DEVICE_SCAN_SECONDS: float = 30.0
-    MDNS_SCAN_SECONDS: float = 120.0
+    DEVICE_SCAN_SECONDS: float = 10800.0  # 3 hours
+    MDNS_SCAN_SECONDS: float = 10800.0    # 3 hours
     
     # Latency checking
     LATENCY_CHECK_SECONDS: float = 10.0
