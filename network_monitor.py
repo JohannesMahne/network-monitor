@@ -36,11 +36,36 @@ info = NSBundle.mainBundle().infoDictionary()
 info["LSUIElement"] = "1"
 
 
+# Global callback helper for MenuAwareTimer - defined once at module level
+_TimerCallbackHelper = None
+
+def _get_timer_callback_helper():
+    """Get or create the global callback helper class."""
+    global _TimerCallbackHelper
+    if _TimerCallbackHelper is None:
+        from Foundation import NSObject
+        
+        class _MenuAwareTimerHelper(NSObject):
+            """Helper object to dispatch timer callbacks to main thread."""
+            callback_ref = None
+            timer_ref = None
+            
+            def doCallback_(self, _):
+                if self.callback_ref and self.timer_ref and self.timer_ref._running:
+                    try:
+                        self.callback_ref(self.timer_ref)
+                    except Exception:
+                        pass
+        
+        _TimerCallbackHelper = _MenuAwareTimerHelper
+    return _TimerCallbackHelper
+
+
 class MenuAwareTimer:
     """Timer that continues running even when menu is open.
     
-    Uses a background thread to ensure callbacks fire regardless of
-    the main thread's run loop mode (including during menu tracking).
+    Uses a background thread with performSelectorOnMainThread to ensure
+    UI updates happen on the main thread, even during menu tracking.
     """
     
     def __init__(self, callback, interval):
@@ -49,6 +74,7 @@ class MenuAwareTimer:
         self._thread = None
         self._running = False
         self._lock = threading.Lock()
+        self._helper = None
     
     @property
     def interval(self):
@@ -61,15 +87,22 @@ class MenuAwareTimer:
             self._interval = value
     
     def _timer_loop(self):
-        """Background thread that fires callbacks."""
+        """Background thread that schedules callbacks on main thread."""
+        # Get or create the helper class
+        HelperClass = _get_timer_callback_helper()
+        
+        helper = HelperClass.alloc().init()
+        helper.callback_ref = self._callback
+        helper.timer_ref = self
+        self._helper = helper
+        
         while self._running:
             time.sleep(self._interval)
-            if self._running and self._callback:
-                try:
-                    # Call callback directly - rumps handles UI thread safety
-                    self._callback(self)
-                except Exception:
-                    pass  # Don't crash on callback errors
+            if self._running:
+                # Dispatch to main thread using performSelectorOnMainThread
+                helper.performSelectorOnMainThread_withObject_waitUntilDone_(
+                    'doCallback:', None, False
+                )
     
     def start(self):
         """Start the timer in a background thread."""
@@ -83,6 +116,7 @@ class MenuAwareTimer:
     def stop(self):
         """Stop the timer."""
         self._running = False
+        self._helper = None
         self._thread = None
 
 # For colored menu bar icons
@@ -342,6 +376,11 @@ class NetworkMonitorApp(rumps.App):
         self._running = True
         self._start_monitoring()
         
+        # Schedule delayed timer start - runs after rumps.run() 
+        # so menu items have their underlying NSMenuItem objects
+        self._startup_timer = rumps.Timer(self._delayed_timer_start, 0.5)
+        self._startup_timer.start()
+        
         # Trigger initial device scan immediately
         threading.Thread(target=self._initial_device_scan, daemon=True).start()
     
@@ -475,16 +514,41 @@ class NetworkMonitorApp(rumps.App):
         ]
     
     def _start_monitoring(self):
-        """Initialize monitoring and start timer."""
+        """Initialize monitoring and start timer.
+        
+        Note: Timers are started via a delayed mechanism because menu items
+        don't have their underlying NSMenuItem objects until after rumps.run().
+        """
         self.network_stats.initialize()
+        
+        # Don't start MenuAwareTimers here - they need to wait until rumps.run()
+        # Instead, use a rumps.Timer that will be started by the rumps app loop
+        # and will trigger the actual timer start
+        self._update_timer = None
+        self._sparkline_timer = None
+        self._timers_started = False
+    
+    def _delayed_timer_start(self, _):
+        """Called by rumps.Timer after app.run() to start actual timers."""
+        if self._timers_started:
+            return
+        
+        self._timers_started = True
+        
+        # Stop the startup timer (we only needed it once)
+        if hasattr(self, '_startup_timer') and self._startup_timer:
+            self._startup_timer.stop()
+            self._startup_timer = None
+        
         # Start the update timer with adaptive interval
         # Use MenuAwareTimer so updates continue even when menu is open
         self._update_timer = MenuAwareTimer(self._timer_callback, self._current_update_interval)
         self._update_timer.start()
+        
         # Start a fast timer for sparkline updates (1 second) - keeps graphs smooth
         self._sparkline_timer = MenuAwareTimer(self._sparkline_timer_callback, 1.0)
         self._sparkline_timer.start()
-        logger.info("Started menu-aware timers (update while menu open)")
+        logger.info("Started menu-aware timers (delayed after app.run)")
     
     def _timer_callback(self, timer):
         """Timer callback (runs on main thread - thread-safe for UI)."""
@@ -520,7 +584,7 @@ class NetworkMonitorApp(rumps.App):
                 self._sparkline_save_counter = 0
                 self._save_sparkline_history()
         except Exception as e:
-            logger.debug(f"Sparkline update error: {e}")
+            logger.error(f"Sparkline update error: {e}", exc_info=True)
     
     def _calculate_adaptive_interval(self) -> float:
         """Calculate the appropriate update interval based on recent activity.
@@ -989,20 +1053,32 @@ class NetworkMonitorApp(rumps.App):
         """
         try:
             from AppKit import NSImage
+            import os
             
-            # Load image directly - use unique filenames to bypass cache
-            image = NSImage.alloc().initWithContentsOfFile_(image_path)
-            if image and menu_item and hasattr(menu_item, '_menuitem'):
-                ns_item = menu_item._menuitem
-                if ns_item:
+            # Update title via rumps - this syncs the internal state
+            if title is not None:
+                menu_item.title = title
+            
+            # For images, we need the NSMenuItem object which is only available
+            # after the menu is built and the app is running
+            ns_item = getattr(menu_item, '_menuitem', None)
+            if ns_item is None:
+                # Menu not built yet, title update via rumps is enough
+                return
+            
+            # Set title via AppKit as well to force visual update
+            if title is not None:
+                ns_item.setTitle_(title)
+            
+            # Try to set image if file exists
+            if image_path and os.path.exists(image_path):
+                # Load image directly - use unique filenames to bypass cache
+                image = NSImage.alloc().initWithContentsOfFile_(image_path)
+                if image:
                     ns_item.setImage_(image)
-                    
-                    # Setting the title helps trigger visual refresh
-                    if title is not None:
-                        ns_item.setTitle_(title)
                 
         except Exception as e:
-            logger.debug(f"Failed to set menu image: {e}")
+            logger.error(f"Failed to set menu image: {e}")
     
     def _update_sparklines(self, stats):
         """Update the sparkline graph display with matplotlib line graphs."""
