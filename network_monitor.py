@@ -13,6 +13,7 @@ import fcntl
 import tempfile
 import atexit
 import json
+import signal
 from datetime import datetime
 from typing import Optional, List, Tuple
 from collections import deque
@@ -361,6 +362,12 @@ class NetworkMonitorApp(rumps.App):
                     self._latency_history.append(self._current_latency)
                 # Update sparkline display
                 self._update_sparklines(stats)
+            
+            # Periodically save sparkline history (every 60 seconds)
+            self._sparkline_save_counter = getattr(self, '_sparkline_save_counter', 0) + 1
+            if self._sparkline_save_counter >= 60:
+                self._sparkline_save_counter = 0
+                self._save_sparkline_history()
         except Exception as e:
             logger.debug(f"Sparkline update error: {e}")
     
@@ -2247,6 +2254,23 @@ def main():
     setup_logging(data_dir=data_dir, debug=False, console_output=True)
     logger.info("Network Monitor starting...")
     
+    app = None
+    
+    def signal_handler(signum, frame):
+        """Handle SIGTERM/SIGINT to save data before exit."""
+        logger.info(f"Received signal {signum}, saving data...")
+        if app:
+            try:
+                app._save_sparkline_history()
+                app.store.flush()
+            except Exception as e:
+                logger.error(f"Error saving on signal: {e}")
+        sys.exit(0)
+    
+    # Register signal handlers for graceful shutdown
+    signal.signal(signal.SIGTERM, signal_handler)
+    signal.signal(signal.SIGINT, signal_handler)
+    
     try:
         app = NetworkMonitorApp()
         app.run()
@@ -2254,6 +2278,12 @@ def main():
         logger.critical(f"Application crashed: {e}", exc_info=True)
         raise
     finally:
+        # Ensure data is saved on any exit
+        if app:
+            try:
+                app._save_sparkline_history()
+            except Exception:
+                pass
         _singleton_lock.release()
 
 
