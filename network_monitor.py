@@ -35,6 +35,56 @@ from Foundation import NSBundle
 info = NSBundle.mainBundle().infoDictionary()
 info["LSUIElement"] = "1"
 
+
+class MenuAwareTimer:
+    """Timer that continues running even when menu is open.
+    
+    Uses a background thread to ensure callbacks fire regardless of
+    the main thread's run loop mode (including during menu tracking).
+    """
+    
+    def __init__(self, callback, interval):
+        self._callback = callback
+        self._interval = interval
+        self._thread = None
+        self._running = False
+        self._lock = threading.Lock()
+    
+    @property
+    def interval(self):
+        return self._interval
+    
+    @interval.setter
+    def interval(self, value):
+        """Update interval."""
+        with self._lock:
+            self._interval = value
+    
+    def _timer_loop(self):
+        """Background thread that fires callbacks."""
+        while self._running:
+            time.sleep(self._interval)
+            if self._running and self._callback:
+                try:
+                    # Call callback directly - rumps handles UI thread safety
+                    self._callback(self)
+                except Exception:
+                    pass  # Don't crash on callback errors
+    
+    def start(self):
+        """Start the timer in a background thread."""
+        if self._running:
+            return
+        
+        self._running = True
+        self._thread = threading.Thread(target=self._timer_loop, daemon=True)
+        self._thread.start()
+    
+    def stop(self):
+        """Stop the timer."""
+        self._running = False
+        self._thread = None
+
 # For colored menu bar icons
 from PIL import Image, ImageDraw
 
@@ -250,6 +300,7 @@ class NetworkMonitorApp(rumps.App):
         # History for sparkline graphs (persisted across restarts)
         self._upload_history: deque = deque(maxlen=self.HISTORY_SIZE)
         self._download_history: deque = deque(maxlen=self.HISTORY_SIZE)
+        self._total_history: deque = deque(maxlen=self.HISTORY_SIZE)  # Combined up+down
         self._quality_history: deque = deque(maxlen=self.HISTORY_SIZE)
         self._latency_history: deque = deque(maxlen=self.HISTORY_SIZE)
         self._load_sparkline_history()  # Load persisted history
@@ -301,6 +352,7 @@ class NetworkMonitorApp(rumps.App):
         self.menu_graph_quality = rumps.MenuItem("◆ ─────────────────────")
         self.menu_graph_upload = rumps.MenuItem("↑ ─────────────────────")
         self.menu_graph_download = rumps.MenuItem("↓ ─────────────────────")
+        self.menu_graph_total = rumps.MenuItem("⇅ ─────────────────────")  # Combined total
         self.menu_graph_latency = rumps.MenuItem("● ─────────────────────")
         
         # === CURRENT STATS ===
@@ -315,9 +367,11 @@ class NetworkMonitorApp(rumps.App):
         
         # === NETWORK DEVICES (dynamically populated) ===
         self.menu_devices = rumps.MenuItem("Devices")
+        self.menu_devices.add(rumps.MenuItem("Scanning..."))  # Placeholder to make submenu clickable
         
         # === TOP APPS (dynamically populated) ===
         self.menu_apps = rumps.MenuItem("Connections")
+        self.menu_apps.add(rumps.MenuItem("Loading..."))  # Placeholder to make submenu clickable
         
         # === HISTORY SUBMENU ===
         self.menu_history = rumps.MenuItem("History")
@@ -397,6 +451,7 @@ class NetworkMonitorApp(rumps.App):
             self.menu_graph_quality,
             self.menu_graph_upload,
             self.menu_graph_download,
+            self.menu_graph_total,
             self.menu_graph_latency,
             rumps.separator,
             self.menu_connection,
@@ -422,12 +477,13 @@ class NetworkMonitorApp(rumps.App):
         """Initialize monitoring and start timer."""
         self.network_stats.initialize()
         # Start the update timer with adaptive interval
-        self._update_timer = rumps.Timer(self._timer_callback, self._current_update_interval)
+        # Use MenuAwareTimer so updates continue even when menu is open
+        self._update_timer = MenuAwareTimer(self._timer_callback, self._current_update_interval)
         self._update_timer.start()
         # Start a fast timer for sparkline updates (1 second) - keeps graphs smooth
-        self._sparkline_timer = rumps.Timer(self._sparkline_timer_callback, 1.0)
+        self._sparkline_timer = MenuAwareTimer(self._sparkline_timer_callback, 1.0)
         self._sparkline_timer.start()
-        logger.info("Started monitoring timers")
+        logger.info("Started menu-aware timers (update while menu open)")
     
     def _timer_callback(self, timer):
         """Timer callback (runs on main thread - thread-safe for UI)."""
@@ -451,6 +507,7 @@ class NetworkMonitorApp(rumps.App):
                 # Record history for sparklines
                 self._upload_history.append(stats.upload_speed)
                 self._download_history.append(stats.download_speed)
+                self._total_history.append(stats.upload_speed + stats.download_speed)
                 if self._current_latency is not None:
                     self._latency_history.append(self._current_latency)
                 # Update sparkline display
@@ -527,6 +584,7 @@ class NetworkMonitorApp(rumps.App):
             # Record history for sparklines
             self._upload_history.append(stats.upload_speed)
             self._download_history.append(stats.download_speed)
+            self._total_history.append(stats.upload_speed + stats.download_speed)
             if self._current_latency is not None:
                 self._latency_history.append(self._current_latency)
             
@@ -984,6 +1042,16 @@ class NetworkMonitorApp(rumps.App):
             self._set_menu_image(self.menu_graph_download, down_img, down_title)
         else:
             self.menu_graph_download.title = down_title
+        
+        # Total (combined) sparkline
+        total_cur = (stats.upload_speed + stats.download_speed) if stats else 0
+        total_title = f"  ⇅  {format_bytes(total_cur, True)}"
+        total_color = '#9B59B6'  # Purple for total
+        if list(self._total_history):
+            total_img = self._create_sparkline_image(list(self._total_history), total_color)
+            self._set_menu_image(self.menu_graph_total, total_img, total_title)
+        else:
+            self.menu_graph_total.title = total_title
         
         # Latency sparkline
         lat_cur = self._current_latency if self._current_latency else 0
@@ -1543,6 +1611,7 @@ class NetworkMonitorApp(rumps.App):
         # Clear history
         self._upload_history.clear()
         self._download_history.clear()
+        self._total_history.clear()
         self._latency_history.clear()
         self._quality_history.clear()
         rumps.notification(
@@ -2282,12 +2351,14 @@ Built with Python, rumps, and matplotlib.
                     self._upload_history.append(val)
                 for val in data.get('download', []):
                     self._download_history.append(val)
+                for val in data.get('total', []):
+                    self._total_history.append(val)
                 for val in data.get('quality', []):
                     self._quality_history.append(val)
                 for val in data.get('latency', []):
                     self._latency_history.append(val)
                 
-                logger.info(f"Loaded sparkline history: {len(self._quality_history)} quality, {len(self._upload_history)} upload samples")
+                logger.info(f"Loaded sparkline history: {len(self._quality_history)} quality, {len(self._upload_history)} upload, {len(self._total_history)} total samples")
             else:
                 logger.info(f"No sparkline history file at {history_file}, starting fresh")
         except Exception as e:
@@ -2300,6 +2371,7 @@ Built with Python, rumps, and matplotlib.
             data = {
                 'upload': list(self._upload_history),
                 'download': list(self._download_history),
+                'total': list(self._total_history),
                 'quality': list(self._quality_history),
                 'latency': list(self._latency_history),
             }
