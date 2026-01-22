@@ -1,356 +1,232 @@
 # Network Monitor for macOS
 
-A lightweight menu bar application that monitors network traffic, tracks daily usage per connection (WiFi/Ethernet), displays real-time speeds with live sparkline graphs, discovers devices on your network, and logs connectivity issues.
+A lightweight macOS menu bar app that monitors network traffic, tracks daily usage per connection (Wi‑Fi/Ethernet), shows real‑time speeds with sparklines, discovers devices on your network, and logs connectivity issues.
+
+![Network Monitor icon preview](assets/icon_preview.png)
+
+## Contents
+
+- [Features](#features)
+- [Requirements](#requirements)
+- [Install](#install)
+- [Usage](#usage)
+- [Privacy, permissions, and security notes](#privacy-permissions-and-security-notes)
+- [Data storage](#data-storage)
+- [Optional: install arp-scan for richer vendor lookups](#optional-install-arp-scan-for-richer-vendor-lookups)
+- [Development](#development)
+- [Troubleshooting](#troubleshooting)
+- [Contributing](#contributing)
+- [Changelog](#changelog)
+- [Licence](#licence)
 
 ## Features
 
-### Core Monitoring
-- **Live Sparkline Graphs**: Real-time mini graphs showing:
-  - Network quality (purple) - 0-100% score
-  - Upload speed (green)
-  - Download speed (blue)
-  - Combined traffic (pink)
-  - Latency (orange)
-- **Menu Bar Display**: Shows latency, speeds, or device count with color-coded status icon
-- **Traffic Breakdown by App**: See which applications are using your bandwidth
-  - Real-time process-level traffic monitoring
-  - Shows bytes in/out per application
-  - Identifies apps by friendly names (Chrome, Slack, Spotify, etc.)
-- **Network Device Discovery**: Discovers and tracks devices on your local network
-  - Shows online/offline status with device type icons
-  - Identifies device vendors (Apple, Samsung, Google, etc.)
-  - Custom device naming with persistence
-  - mDNS/Bonjour service discovery
+### Monitoring
 
-### Statistics & History
-- **Per-Connection Tracking**: Tracks usage separately for each WiFi network (by SSID) and Ethernet
-- **Daily Statistics**: Persists daily totals across app restarts
-- **Usage History**: Weekly, monthly, and per-connection breakdowns
-- **Data Budgets**: Set data limits per connection with notifications
+- **Live sparklines**: compact graphs for:
+  - network quality (purple) — 0–100 score
+  - upload speed (green)
+  - download speed (blue)
+  - total traffic (pink)
+  - latency (orange)
+- **Menu bar status**: latency/speeds/device count with a colour‑coded status icon
+- **Traffic breakdown by app**: per‑process traffic (bytes in/out) with friendly application names
+- **Device discovery**: scans your local network and tracks devices over time (including vendor lookups and mDNS/Bonjour names)
 
-### Network Quality
-- **Latency Monitor**: Real-time ping with color-coded status
-- **Network Quality Score**: 0-100% score based on latency, jitter, and consistency
-- **VPN Detection**: Automatically detects active VPN connections
-- **Issue Detection**: Connection drops, high latency, speed drops, quality degradation
+### History & budgets
 
-### Data Management (v1.2+)
-- **SQLite Storage**: Efficient storage for historical data queries
-- **Automatic Cleanup**: Configurable data retention (default: 90 days)
-- **Backup & Restore**: Create and restore database backups
-- **Export**: Export data to CSV or JSON format
-- **Persistent Sparklines** (v1.3): Graph history survives app restarts
-- **Persistent Budgets** (v1.3): Data usage accumulates correctly across restarts
+- **Per‑connection tracking**: separate usage for each Wi‑Fi SSID and Ethernet
+- **Daily totals**: persisted across app restarts
+- **History views**: weekly/monthly breakdowns (where supported in the UI)
+- **Data budgets**: set limits per connection and get notified
 
-### System Integration
-- **Launch at Login**: Toggle auto-start via LaunchAgent
-- **Adaptive Updates**: Faster updates during high activity, slower when idle
+### Network quality
+
+- **Latency monitor**: continuous ping with colour‑coded status
+- **Quality score**: 0–100 score based on latency/jitter/consistency
+- **VPN detection**: detects active VPN interfaces
+- **Issue detection**: connection drops, sustained high latency, notable speed drops, quality degradation
+
+### System integration
+
+- **Launch at login**: toggle auto‑start via a LaunchAgent
+- **Adaptive updates**: updates more frequently during high activity and less when idle
 
 ## Requirements
 
-- macOS (tested on macOS 14+)
-- Python 3.9+
+- **macOS**: tested on **macOS 14+**. Older versions may work but are not currently verified.
+- **Python**: **3.9+**
 
-## Installation
+## Install
 
-### Option 1: Build as macOS App (Recommended)
+### Option 1: Build a standalone macOS app (recommended)
 
-Build a standalone application that you can launch from the Applications folder:
+Build an `.app` bundle you can place in `/Applications`:
+
+```bash
+cd network-monitor
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements-dev.txt
+
+python setup.py py2app
+cp -R "dist/Network Monitor.app" /Applications/
+```
+
+Launch **Network Monitor** from **Applications** or Spotlight.
+
+### Option 2: Run from source
 
 ```bash
 cd network-monitor
 python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
-pip install py2app
-
-# Build the app
-python setup.py py2app
-
-# Copy to Applications
-cp -R "dist/Network Monitor.app" /Applications/
+python network_monitor.py
 ```
 
-Then launch **Network Monitor** from your Applications folder or Spotlight.
-
-### Option 2: Run from Source
-
-1. **Clone or download this folder**
-
-2. **Create virtual environment and install dependencies**:
-   ```bash
-   cd network-monitor
-   python3 -m venv venv
-   source venv/bin/activate
-   pip install -r requirements.txt
-   ```
-
-3. **Run the application**:
-   ```bash
-   python network_monitor.py
-   ```
-
-   Or use the convenience script:
-   ```bash
-   ./run.sh
-   ```
-
-### Device Identification
-
-Devices are identified using multiple sources:
-
-1. **Custom names** (highest priority) - Names you assign manually
-2. **mDNS/Bonjour** - Discovers device names via network services (e.g., "Kitchen", "Johannes's MacBook")
-3. **IEEE OUI Database** - 47,000+ vendor entries from MAC address prefixes
-4. **Fingerprinting** - Device type inference from vendor + hostname patterns
-5. **Hostname** - DNS name resolution
-6. **IP address** (fallback)
-
-**To name a device:**
-- Click on any device in the **Devices** menu
-- Enter a custom name (e.g., "Living Room TV", "Dad's iPhone")
-- Names are saved to `~/.network-monitor/device_names.json`
-
-**Device type icons:**
-| Icon | Type | Examples |
-|------|------|----------|
-| 📱 | Phone | iPhone, Galaxy, Pixel |
-| 💻 | Laptop | MacBook, Surface |
-| 🖥️ | Desktop | iMac, Mac Mini, Intel PC |
-| 📺 | TV | Roku, Chromecast, Apple TV |
-| 🔊 | Speaker | Sonos, HomePod |
-| 🔌 | IoT | ESP32, Tuya, smart plugs |
-| 📡 | Router | Huawei, Netgear, TP-Link |
-| 🖨️ | Printer | Epson, HP, Canon |
-| 🎮 | Gaming | PlayStation, Xbox |
-| 📷 | Camera | Ring, Wyze, Arlo |
-
-### Optional: Install arp-scan for Better Vendor Database
-
-The app uses the IEEE OUI database from `arp-scan` for vendor lookup:
+Or use the convenience script (creates `venv/` automatically if needed):
 
 ```bash
-brew install arp-scan
+./run.sh
 ```
-
-This provides 47,000+ vendor entries for accurate device identification. Without it, the app falls back to a smaller built-in database.
 
 ## Usage
 
-Once running, the app appears in your menu bar showing current upload/download speeds and device count:
+Once running, the app appears in the menu bar. A typical display looks like:
 
 ```
 ↑1.2 MB/s ↓5.4 MB/s | 📡5
 ```
 
-The `📡5` indicates 5 devices are currently online on your network.
+The `📡5` indicates five devices currently appear online on your network.
 
-Click the menu bar item to see:
-- Current connection (WiFi SSID or Ethernet)
-- IP address
-- Current, average, and peak speeds
-- Session and daily totals
-- **Traffic Breakdown**: See which apps are using your network:
-  - Lists active processes with traffic data
-  - Shows download/upload bytes per app
-  - Identifies apps (Chrome, Slack, VS Code, etc.)
-- Connection history (per-network usage)
-- **Network Devices**: List of all discovered devices with:
-  - Online/offline status (🟢/⚪)
-  - Device name or IP
-  - Vendor identification
-  - MAC address, hostname, first/last seen times
-- Rescan Network: Force an immediate network scan
-- Issues log (connectivity problems)
+Click the menu bar item to see details such as:
 
-### Settings
+- current connection (Wi‑Fi SSID or Ethernet) and IP address
+- current/average/peak speeds, session totals, and today’s totals
+- **traffic breakdown**: active processes and their upload/download usage
+- **devices**: online/offline status (🟢/⚪), name/IP, vendor, MAC, hostname, first/last seen
+- actions such as **Rescan Network** and viewing the **Issues** log
 
-- **Launch at Login**: Toggle to start the app automatically when you log in
-  - Shows ✓ when enabled, ○ when disabled
-  - Uses macOS LaunchAgents (standard method)
-- **Reset Session Stats**: Clears current session data (speeds, averages)
-- **Reset Today's Stats**: Clears all data for today
-- **Rescan Network**: Force a network device scan
-- **Open Data Folder**: Opens the folder where statistics are stored
+### Device identification and naming
 
-## Data Storage
+Device names are resolved from multiple sources (highest priority first):
 
-Statistics are stored in SQLite format (v1.2+) at:
+1. **Custom names** you set
+2. **mDNS/Bonjour** service names (where available)
+3. **Vendor/OUI look‑ups** from MAC prefixes
+4. **Device type inference** from vendor/hostname patterns
+5. **Hostname** via DNS resolution
+6. **IP address** as a fallback
+
+To name a device:
+
+- open **Devices**
+- select a device
+- enter a custom name
+
+Names are stored at `~/.network-monitor/device_names.json`.
+
+## Privacy, permissions, and security notes
+
+- **Location Services (Wi‑Fi SSID)**: on macOS 14+, your terminal (or the built `.app`) may need Location Services permission to read the current Wi‑Fi network name (SSID). Without it, the app will show a “Private” placeholder for the SSID.
+- **Local network scanning**: device discovery relies on standard local tools and protocols (e.g. ARP and mDNS). It does **not** require port forwarding or inbound firewall rules.
+- **Data stays local**: stats, device names, and logs are written under `~/.network-monitor/`.
+
+## Data storage
+
+Data is stored under `~/.network-monitor/`. Historical statistics use SQLite:
+
 ```
 ~/.network-monitor/network_monitor.db
 ```
 
-The database includes:
-- **traffic_stats**: Daily traffic data per connection
-- **issues**: Network events and issues log
-- **devices**: Known network devices with custom names
+Common tables include:
+
+- `traffic_stats`: daily traffic per connection
+- `issues`: events and issue log
+- `devices`: known devices (including custom names)
+
+### Backup, restore, and export
+
+From the menu:
+
+- **Actions → Backup & Restore** (create/restore backups, view database info, run retention clean‑up)
+- **Actions → Export Data** (CSV or JSON)
 
 ### Migration from JSON
 
-When upgrading from v1.1, existing JSON data is automatically migrated to SQLite on first run. The old `stats.json` file is renamed to `stats.json.bak`.
+If you are upgrading from older releases that used `stats.json`, existing data is migrated on first run. The old file is renamed to `stats.json.bak`.
 
-### Backup & Restore
+## Optional: install arp-scan for richer vendor lookups
 
-From the menu: **Actions → Backup & Restore**
-- **Create Backup**: Save database to a file
-- **Restore from Backup**: Restore from a previous backup
-- **Database Info**: View statistics about stored data
-- **Run Cleanup Now**: Manually remove data older than retention period
+If you have `arp-scan` installed, the app can use its IEEE OUI database for vendor identification:
 
-### Export Formats
-
-Export data via **Actions → Export Data**:
-- **CSV**: Daily totals for spreadsheet analysis
-- **JSON**: Full data export including devices and issues
-
-## Project Structure
-
+```bash
+brew install arp-scan
 ```
-network-monitor/
-├── network_monitor.py      # Main application entry point
-├── setup.py                # py2app build configuration
-├── app/                    # Application architecture
-│   ├── __init__.py
-│   ├── events.py           # Event bus for pub/sub communication
-│   ├── dependencies.py     # Dependency injection container
-│   ├── controller.py       # Business logic orchestration
-│   └── views/
-│       ├── icons.py        # Icon and sparkline generation
-│       └── menu_builder.py # Menu construction helpers
-├── assets/                 # Application resources
-│   └── NetworkMonitor.icns # App icon
-├── config/                 # Configuration module
-│   ├── __init__.py
-│   ├── constants.py        # Centralized configuration values
-│   ├── exceptions.py       # Custom exception hierarchy
-│   ├── logging_config.py   # Structured logging setup
-│   └── subprocess_cache.py # Cached subprocess execution
-├── monitor/                # Data collection modules
-│   ├── __init__.py
-│   ├── connection.py       # WiFi/Ethernet/VPN detection
-│   ├── issues.py           # Issue detection and logging
-│   ├── network.py          # Network stats collection
-│   ├── scanner.py          # Network device discovery
-│   ├── traffic.py          # Traffic breakdown by process
-│   └── utils.py            # Shared utility functions
-├── scripts/                # Build and utility scripts
-│   └── create_icon.py      # Generate app icon
-├── storage/                # Data persistence
-│   ├── __init__.py
-│   ├── sqlite_store.py     # SQLite storage (v1.2+)
-│   ├── json_store.py       # Legacy JSON storage
-│   └── settings.py         # Application settings
-├── service/
-│   ├── __init__.py
-│   └── launch_agent.py     # macOS LaunchAgent management
-├── tests/                  # Test suite
-│   ├── __init__.py
-│   ├── conftest.py         # Pytest fixtures
-│   ├── mocks.py            # Mock implementations
-│   └── test_*.py           # Test modules
-├── pyproject.toml          # Project & tool configuration
-├── .pre-commit-config.yaml # Pre-commit hooks
-├── requirements.txt
-├── requirements-dev.txt
-├── README.md
-└── run.sh
-```
+
+Without it, the app falls back to a smaller built‑in vendor list.
 
 ## Development
 
-### Setup Development Environment
+### Set up a development environment
 
 ```bash
-# Create virtual environment
-python3 -m venv venv
-source venv/bin/activate
-
-# Install dependencies including dev tools
+python3 -m venv .venv
+source .venv/bin/activate
 pip install -r requirements-dev.txt
-
-# Install pre-commit hooks
 pre-commit install
 ```
 
-### Code Quality Tools
-
-The project uses modern Python tooling configured in `pyproject.toml`:
-
-- **Black**: Code formatting (line length: 100)
-- **Ruff**: Fast linting (replaces flake8, isort, pyupgrade)
-- **MyPy**: Static type checking
-- **Bandit**: Security scanning
+### Quality checks
 
 ```bash
-# Format code
 black .
-
-# Run linter with auto-fix
 ruff check --fix .
-
-# Type check
 mypy monitor storage service config app
-
-# Run all pre-commit hooks
 pre-commit run --all-files
 ```
 
-### Running Tests
+### Tests
 
 ```bash
-# Run all tests
 pytest
-
-# Run with verbose output
 pytest -v
-
-# Run with coverage report
-pytest --cov=monitor --cov=storage --cov=service --cov-report=html
-
-# Run specific test file
-pytest tests/test_network.py -v
+pytest --cov=monitor --cov=storage --cov=service --cov=config --cov=app --cov-report=html
 ```
-
-### Verification Checklist
-
-After making changes, verify:
-
-1. Pre-commit hooks pass: `pre-commit run --all-files`
-2. Application starts without errors: `python network_monitor.py`
-3. All display modes work (latency, speed, session, devices, quality)
-4. Device scanning works and shows vendors
-5. Tests pass: `pytest`
-6. No type errors: `mypy monitor storage`
 
 ## Troubleshooting
 
-### App doesn't appear in menu bar
-- Ensure you have Python 3.9+ installed
-- Check that rumps installed correctly: `pip show rumps`
-- Try running with: `python3 network_monitor.py`
+### The app doesn’t appear in the menu bar
 
-### WiFi SSID shows "Private" or not detected
-macOS 14+ (Sonoma/Sequoia) requires Location Services permission to access WiFi network names. To enable:
+- Ensure you’re running on macOS and using Python 3.9+
+- Check dependencies installed correctly: `pip show rumps`
+- Try running from a terminal first: `python network_monitor.py`
 
-1. Open **System Settings** → **Privacy & Security** → **Location Services**
-2. Enable Location Services (toggle at top)
-3. Scroll down and enable for **Terminal** (or your terminal app)
-4. Restart the Network Monitor app
+### Wi‑Fi SSID shows “Private” (or is not detected)
 
-Without Location Services, the app will show "WiFi (Private - enable Location)" instead of the actual network name. All other features work normally.
+On macOS 14+, Location Services permission is required to access Wi‑Fi network names. Enable it for your terminal:
 
-### Statistics not persisting
-- Check that `~/.network-monitor/` is writable
-- Look for error messages in the terminal
+1. **System Settings** → **Privacy & Security** → **Location Services**
+2. Turn on Location Services (top toggle)
+3. Enable it for **Terminal** (or your terminal app)
+4. Restart Network Monitor
+
+### Statistics don’t persist
+
+- Check `~/.network-monitor/` is writable
+- Check `~/.network-monitor/network_monitor.log` for errors
 
 ## Contributing
 
-Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+Contributions are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Changelog
 
-See [CHANGELOG.md](CHANGELOG.md) for version history and release notes.
+See [CHANGELOG.md](CHANGELOG.md).
 
-## License
+## Licence
 
-MIT License - feel free to modify and use as needed.
+This project is released under the MIT License.

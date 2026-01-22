@@ -7,19 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
-- GitHub Actions CI/CD pipeline for automated testing and builds
-- CHANGELOG.md to track version history
-- CONTRIBUTING.md with contributor guidelines
-- Python 3.13 support
-
 ### Changed
-- Updated pre-commit hook versions (black 24.10.0, ruff 0.9.2, mypy 1.14.1, bandit 1.9.0)
-- Improved OUI database path detection (version-agnostic Homebrew Cellar search)
-- Virtual environment detection now supports both `.venv/` and `venv/`
-
-### Fixed
-- Hardcoded arp-scan version in OUI database path
+- Improved documentation and consistency (British English, clarified install/dev instructions)
 
 ## [1.4.0] - 2026-01-15
 
@@ -28,15 +17,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Subprocess caching for improved performance
 - Lazy hostname resolution for better UI responsiveness
 - mDNS/Bonjour service discovery for device identification
+- Python 3.13 support
 
 ### Changed
 - Migrated from JSON to SQLite for data persistence
 - Improved device type inference from vendor and hostname patterns
 - Better error handling in network scanning
+- Improved OUI database path detection (version-agnostic Homebrew Cellar search)
+- Virtual environment detection now supports both `.venv/` and `venv/`
+- Updated pre-commit hook versions (black 24.10.0, ruff 0.9.2, mypy 1.14.1, bandit 1.9.0)
 
 ### Fixed
 - Memory leaks in long-running sessions
 - Race conditions in concurrent device updates
+- Hardcoded arp-scan version in OUI database path
 
 ## [1.3.0] - 2025-12-01
 

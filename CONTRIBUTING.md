@@ -1,6 +1,6 @@
 # Contributing to Network Monitor
 
-Thank you for your interest in contributing to Network Monitor! This document provides guidelines and instructions for contributing.
+Thank you for your interest in contributing to Network Monitor. This document explains how to set up a dev environment, run checks, and open a good pull request.
 
 ## Code of Conduct
 
@@ -10,8 +10,8 @@ Please be respectful and constructive in all interactions. We welcome contributo
 
 ### Prerequisites
 
-- macOS 10.14 or later
-- Python 3.9 or later
+- macOS (tested on **macOS 14+**; older versions may work but are not currently verified)
+- Python **3.9+**
 - Git
 
 ### Development Setup
@@ -30,7 +30,6 @@ Please be respectful and constructive in all interactions. We welcome contributo
 
 3. **Install dependencies**
    ```bash
-   pip install -r requirements.txt
    pip install -r requirements-dev.txt
    ```
 
@@ -77,7 +76,7 @@ Run all checks manually:
 black .
 
 # Lint
-ruff check . --fix
+ruff check --fix .
 
 # Type check
 mypy monitor storage service config app
@@ -163,7 +162,7 @@ Add lazy hostname resolution for device scanner
 
 - Write tests for new features
 - Maintain or improve code coverage
-- Use meaningful test names that describe the behavior
+- Use meaningful test names that describe the behaviour
 - Use fixtures for common test setup
 - Mock external dependencies (subprocess, network, filesystem)
 
@@ -173,7 +172,7 @@ When reporting bugs, please include:
 - macOS version
 - Python version
 - Steps to reproduce
-- Expected vs actual behavior
+- Expected vs actual behaviour
 - Relevant log output (from `~/.network-monitor/`)
 
 ## Questions?
