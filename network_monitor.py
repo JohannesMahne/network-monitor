@@ -162,6 +162,7 @@ class NetworkMonitorApp(rumps.App):
         self._quality_history: deque = deque(maxlen=self.HISTORY_SIZE)
         self._latency_history: deque = deque(maxlen=self.HISTORY_SIZE)
         self._load_sparkline_history()  # Load persisted history
+        self._sparkline_save_counter = 0  # Counter for periodic saves
         
         # Adaptive update intervals
         self._activity_samples: deque = deque(maxlen=INTERVALS.ACTIVITY_CHECK_SAMPLES)
@@ -2178,6 +2179,7 @@ Built with Python, rumps, and matplotlib.
     def _load_sparkline_history(self) -> None:
         """Load sparkline history from persistent storage."""
         history_file = self.store.data_dir / "sparkline_history.json"
+        logger.debug(f"Loading sparkline history from: {history_file}")
         try:
             if history_file.exists():
                 with open(history_file, 'r') as f:
@@ -2193,9 +2195,11 @@ Built with Python, rumps, and matplotlib.
                 for val in data.get('latency', []):
                     self._latency_history.append(val)
                 
-                logger.debug(f"Loaded sparkline history: {len(self._quality_history)} quality samples")
+                logger.info(f"Loaded sparkline history: {len(self._quality_history)} quality, {len(self._upload_history)} upload samples")
+            else:
+                logger.info(f"No sparkline history file at {history_file}, starting fresh")
         except Exception as e:
-            logger.debug(f"Could not load sparkline history: {e}")
+            logger.warning(f"Could not load sparkline history: {e}")
     
     def _save_sparkline_history(self) -> None:
         """Save sparkline history to persistent storage."""
@@ -2209,9 +2213,9 @@ Built with Python, rumps, and matplotlib.
             }
             with open(history_file, 'w') as f:
                 json.dump(data, f)
-            logger.debug("Saved sparkline history")
+            logger.info(f"Saved sparkline history: {len(self._quality_history)} quality, {len(self._upload_history)} upload samples to {history_file}")
         except Exception as e:
-            logger.debug(f"Could not save sparkline history: {e}")
+            logger.error(f"Could not save sparkline history to {history_file}: {e}")
     
     def _quit(self, _):
         """Quit the application."""
