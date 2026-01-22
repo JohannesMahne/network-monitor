@@ -1130,7 +1130,7 @@ class NetworkMonitorApp(rumps.App):
         # Total (combined) sparkline
         total_cur = (stats.upload_speed + stats.download_speed) if stats else 0
         total_title = f"  ⇅  {format_bytes(total_cur, True)}"
-        total_color = '#9B59B6'  # Purple for total
+        total_color = COLORS.TOTAL_COLOR  # Pink/Magenta
         if list(self._total_history):
             total_img = self._create_sparkline_image(list(self._total_history), total_color)
             self._set_menu_image(self.menu_graph_total, total_img, total_title)

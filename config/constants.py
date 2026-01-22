@@ -141,6 +141,7 @@ class Colors:
     DOWNLOAD_COLOR: str = "#007AFF"  # Blue
     LATENCY_COLOR: str = "#FF9500"   # Orange
     QUALITY_COLOR: str = "#AF52DE"   # Purple
+    TOTAL_COLOR: str = "#FF2D55"     # Pink/Magenta (distinct from purple)
 
 
 @dataclass(frozen=True)
