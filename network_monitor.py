@@ -331,6 +331,9 @@ class NetworkMonitorApp(rumps.App):
         # Start the update timer (runs on main thread) with adaptive interval
         self._update_timer = rumps.Timer(self._timer_callback, self._current_update_interval)
         self._update_timer.start()
+        # Start a fast timer for sparkline updates (1 second) - keeps graphs smooth
+        self._sparkline_timer = rumps.Timer(self._sparkline_timer_callback, 1.0)
+        self._sparkline_timer.start()
     
     def _timer_callback(self, timer):
         """Timer callback (runs on main thread - thread-safe for UI)."""
@@ -342,6 +345,24 @@ class NetworkMonitorApp(rumps.App):
             self._adjust_update_interval()
         except Exception as e:
             logger.error(f"Monitor error: {e}", exc_info=True)
+    
+    def _sparkline_timer_callback(self, timer):
+        """Fast timer callback for sparkline updates (1 second)."""
+        if not self._running:
+            return
+        try:
+            # Get current stats for sparkline update
+            stats = self.network_stats.get_current_stats()
+            if stats:
+                # Record history for sparklines
+                self._upload_history.append(stats.upload_speed)
+                self._download_history.append(stats.download_speed)
+                if self._current_latency is not None:
+                    self._latency_history.append(self._current_latency)
+                # Update sparkline display
+                self._update_sparklines(stats)
+        except Exception as e:
+            logger.debug(f"Sparkline update error: {e}")
     
     def _calculate_adaptive_interval(self) -> float:
         """Calculate the appropriate update interval based on recent activity.
@@ -2142,6 +2163,11 @@ Built with Python, rumps, and matplotlib.
         """Quit the application."""
         logger.info("Application shutting down...")
         self._running = False
+        # Stop timers
+        if hasattr(self, '_sparkline_timer'):
+            self._sparkline_timer.stop()
+        if hasattr(self, '_update_timer'):
+            self._update_timer.stop()
         self._save_sparkline_history()  # Persist graph history
         self.store.flush()  # Save any pending data
         self._cleanup_temp_files()
