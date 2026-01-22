@@ -140,6 +140,7 @@ class Colors:
     UPLOAD_COLOR: str = "#34C759"    # Green
     DOWNLOAD_COLOR: str = "#007AFF"  # Blue
     LATENCY_COLOR: str = "#FF9500"   # Orange
+    QUALITY_COLOR: str = "#AF52DE"   # Purple
 
 
 @dataclass(frozen=True)

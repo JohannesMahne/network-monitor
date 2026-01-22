@@ -157,6 +157,7 @@ class NetworkMonitorApp(rumps.App):
         # History for sparkline graphs
         self._upload_history: deque = deque(maxlen=self.HISTORY_SIZE)
         self._download_history: deque = deque(maxlen=self.HISTORY_SIZE)
+        self._quality_history: deque = deque(maxlen=self.HISTORY_SIZE)
         self._latency_history: deque = deque(maxlen=self.HISTORY_SIZE)
         
         # Adaptive update intervals
@@ -202,6 +203,7 @@ class NetworkMonitorApp(rumps.App):
         """Build the dropdown menu - standard macOS style."""
         
         # === SPARKLINE GRAPHS (no header, graphs speak for themselves) ===
+        self.menu_graph_quality = rumps.MenuItem("◆ ─────────────────────")
         self.menu_graph_upload = rumps.MenuItem("↑ ─────────────────────")
         self.menu_graph_download = rumps.MenuItem("↓ ─────────────────────")
         self.menu_graph_latency = rumps.MenuItem("● ─────────────────────")
@@ -297,6 +299,7 @@ class NetworkMonitorApp(rumps.App):
         # === BUILD MENU (standard macOS layout) ===
         # Note: VPN status is added dynamically when VPN is detected
         self.menu = [
+            self.menu_graph_quality,
             self.menu_graph_upload,
             self.menu_graph_download,
             self.menu_graph_latency,
@@ -786,9 +789,17 @@ class NetworkMonitorApp(rumps.App):
     def _update_sparklines(self, stats):
         """Update the sparkline graph display with matplotlib line graphs."""
         # Colors for each metric - use constants
+        quality_color = COLORS.QUALITY_COLOR
         up_color = COLORS.UPLOAD_COLOR
         down_color = COLORS.DOWNLOAD_COLOR
         lat_color = COLORS.LATENCY_COLOR
+        
+        # Quality sparkline (0-100 scale)
+        quality_cur = self._quality_score if self._quality_score is not None else 0
+        if list(self._quality_history):
+            quality_img = self._create_sparkline_image(list(self._quality_history), quality_color)
+            self._set_menu_image(self.menu_graph_quality, quality_img)
+        self.menu_graph_quality.title = f"  ◆  {quality_cur}%"
         
         # Upload sparkline
         up_cur = stats.upload_speed if stats else 0
@@ -932,6 +943,9 @@ class NetworkMonitorApp(rumps.App):
             jitter_score * 0.3 +
             consistency_score * 0.3
         )
+        
+        # Track quality history for sparkline
+        self._quality_history.append(self._quality_score)
         
         # Display with color indicator
         if self._quality_score >= 80:
