@@ -819,34 +819,36 @@ class NetworkMonitorApp(rumps.App):
         
         return str(img_path)
     
-    def _set_menu_image(self, menu_item, image_path: str):
-        """Set an image on a menu item using AppKit."""
+    def _set_menu_image(self, menu_item, image_path: str, title: str = None):
+        """Set an image on a menu item using AppKit with live refresh.
+        
+        Args:
+            menu_item: The rumps MenuItem
+            image_path: Path to the image file
+            title: Optional new title (setting title helps force refresh)
+        """
         try:
             from AppKit import NSImage
+            
+            # Load new image
             image = NSImage.alloc().initWithContentsOfFile_(image_path)
             if image:
-                menu_item._menuitem.setImage_(image)
-                # Force the menu to update if it's visible
-                self._refresh_menu_display()
+                ns_item = menu_item._menuitem
+                ns_item.setImage_(image)
+                
+                # Setting the title through NSMenuItem also helps trigger refresh
+                if title is not None:
+                    ns_item.setTitle_(title)
+                    # Also update rumps level for consistency
+                    menu_item._menuitem.setTitle_(title)
+                
+                # Get parent menu and call update
+                parent_menu = ns_item.menu()
+                if parent_menu:
+                    parent_menu.update()
+                
         except Exception as e:
-            logger.debug(f"Failed to set menu image: {e}")  # Non-critical UI feature
-    
-    def _refresh_menu_display(self):
-        """Force the menu to refresh its display while open."""
-        try:
-            # Access rumps internal status bar and its menu
-            if hasattr(self, '_nsstatusitem') and self._nsstatusitem:
-                ns_menu = self._nsstatusitem.menu()
-                if ns_menu:
-                    # Force menu update
-                    ns_menu.update()
-                    # Also try to redisplay menu items
-                    for i in range(ns_menu.numberOfItems()):
-                        item = ns_menu.itemAtIndex_(i)
-                        if item and item.view():
-                            item.view().setNeedsDisplay_(True)
-        except Exception:
-            pass  # Non-critical - menu will update when reopened
+            logger.debug(f"Failed to set menu image: {e}")
     
     def _update_sparklines(self, stats):
         """Update the sparkline graph display with matplotlib line graphs."""
@@ -858,31 +860,39 @@ class NetworkMonitorApp(rumps.App):
         
         # Quality sparkline (0-100 scale)
         quality_cur = self._quality_score if self._quality_score is not None else 0
+        quality_title = f"  ◆  {quality_cur}%"
         if list(self._quality_history):
             quality_img = self._create_sparkline_image(list(self._quality_history), quality_color)
-            self._set_menu_image(self.menu_graph_quality, quality_img)
-        self.menu_graph_quality.title = f"  ◆  {quality_cur}%"
+            self._set_menu_image(self.menu_graph_quality, quality_img, quality_title)
+        else:
+            self.menu_graph_quality.title = quality_title
         
         # Upload sparkline
         up_cur = stats.upload_speed if stats else 0
+        up_title = f"  ↑  {format_bytes(up_cur, True)}"
         if list(self._upload_history):
             up_img = self._create_sparkline_image(list(self._upload_history), up_color)
-            self._set_menu_image(self.menu_graph_upload, up_img)
-        self.menu_graph_upload.title = f"  ↑  {format_bytes(up_cur, True)}"
+            self._set_menu_image(self.menu_graph_upload, up_img, up_title)
+        else:
+            self.menu_graph_upload.title = up_title
         
         # Download sparkline
         down_cur = stats.download_speed if stats else 0
+        down_title = f"  ↓  {format_bytes(down_cur, True)}"
         if list(self._download_history):
             down_img = self._create_sparkline_image(list(self._download_history), down_color)
-            self._set_menu_image(self.menu_graph_download, down_img)
-        self.menu_graph_download.title = f"  ↓  {format_bytes(down_cur, True)}"
+            self._set_menu_image(self.menu_graph_download, down_img, down_title)
+        else:
+            self.menu_graph_download.title = down_title
         
         # Latency sparkline
         lat_cur = self._current_latency if self._current_latency else 0
+        lat_title = f"  ●  {lat_cur:.0f}ms"
         if list(self._latency_history):
             lat_img = self._create_sparkline_image(list(self._latency_history), lat_color)
-            self._set_menu_image(self.menu_graph_latency, lat_img)
-        self.menu_graph_latency.title = f"  ●  {lat_cur:.0f}ms"
+            self._set_menu_image(self.menu_graph_latency, lat_img, lat_title)
+        else:
+            self.menu_graph_latency.title = lat_title
     
     def _update_latency(self):
         """Update latency display."""
