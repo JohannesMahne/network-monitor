@@ -1095,24 +1095,13 @@ class NetworkMonitorApp(rumps.App):
             total_connections = sum(conns for _, _, _, conns in top_processes)
             self.menu_apps.title = f"Connections ({total_connections})"
             
-            # Add top 5 directly
-            for i, (name, bytes_in, bytes_out, conns) in enumerate(top_processes[:5]):
+            # Add all processes in a flat list
+            for name, bytes_in, bytes_out, conns in top_processes:
                 if conns > 0:
                     title = f"{name}: {conns} conn{'s' if conns > 1 else ''}"
                 else:
                     title = f"{name}: idle"
                 self.menu_apps.add(rumps.MenuItem(title))
-            
-            # Add "More" submenu if there are more than 5
-            if len(top_processes) > 5:
-                more_menu = rumps.MenuItem(f"More ({len(top_processes) - 5})")
-                for name, bytes_in, bytes_out, conns in top_processes[5:]:
-                    if conns > 0:
-                        title = f"{name}: {conns} conn{'s' if conns > 1 else ''}"
-                    else:
-                        title = f"{name}: idle"
-                    more_menu.add(rumps.MenuItem(title))
-                self.menu_apps.add(more_menu)
                 
         except Exception as e:
             self._safe_menu_clear(self.menu_apps)
@@ -1271,27 +1260,13 @@ class NetworkMonitorApp(rumps.App):
             )
             return item
         
-        # Add top 5 directly - device type icon is included in format
-        for d in online_devices[:5]:
+        # Add all online devices in a flat list
+        for d in online_devices:
             self.menu_devices.add(make_device_item(d))
         
-        # Add "More" submenu if there are more than 5
-        if len(online_devices) > 5:
-            more_menu = rumps.MenuItem(f"More ({len(online_devices) - 5})")
-            for d in online_devices[5:]:
-                more_menu.add(make_device_item(d))
-            
-            # Add offline devices inside More
-            if offline_devices:
-                more_menu.add(rumps.separator)
-                offline_menu = rumps.MenuItem(f"Offline ({len(offline_devices)})")
-                for d in offline_devices:
-                    offline_menu.add(make_device_item(d))
-                more_menu.add(offline_menu)
-            
-            self.menu_devices.add(more_menu)
-        elif offline_devices:
-            # No "More" needed but still show offline
+        # Add offline devices in a separate submenu at the bottom
+        if offline_devices:
+            self.menu_devices.add(rumps.separator)
             offline_menu = rumps.MenuItem(f"Offline ({len(offline_devices)})")
             for d in offline_devices:
                 offline_menu.add(make_device_item(d, "○ "))
