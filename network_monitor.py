@@ -388,6 +388,7 @@ class NetworkMonitorApp(rumps.App):
         
         # === RECENT EVENTS ===
         self.menu_events = rumps.MenuItem("Recent Events")
+        self.menu_events.add(rumps.MenuItem("No recent events"))  # Placeholder to make submenu clickable
         
         # === SETTINGS SUBMENU ===
         self.menu_settings = rumps.MenuItem("Settings")
@@ -920,14 +921,15 @@ class NetworkMonitorApp(rumps.App):
         # Resize down to final size with high-quality anti-aliasing
         img = img.resize((width, height), Image.Resampling.LANCZOS)
         
-        # Save to temp file
+        # Save to temp file with timestamp for uniqueness (forces NSImage reload)
         temp_dir = Path(tempfile.gettempdir()) / STORAGE.SPARKLINE_TEMP_DIR
         temp_dir.mkdir(exist_ok=True)
         
-        # Use hash of values for filename to enable caching
-        # nosec B324 - MD5 used for cache key, not security
-        val_hash = hashlib.md5(str(values).encode(), usedforsecurity=False).hexdigest()[:8]
-        img_path = temp_dir / f'spark_{color.replace("#", "")}_{val_hash}.png'
+        # Use timestamp in filename to bypass macOS image caching
+        # This ensures each update creates a new file that NSImage will load fresh
+        import time as time_mod
+        timestamp = int(time_mod.time() * 1000) % 100000  # Last 5 digits of milliseconds
+        img_path = temp_dir / f'spark_{color.replace("#", "")}_{timestamp}.png'
         
         img.save(str(img_path), 'PNG')
         return str(img_path)
@@ -986,24 +988,20 @@ class NetworkMonitorApp(rumps.App):
             title: Optional new title (setting title helps force refresh)
         """
         try:
-            from AppKit import NSImage
+            from AppKit import NSImage, NSData
             
-            # Load new image
-            image = NSImage.alloc().initWithContentsOfFile_(image_path)
+            # Load image data directly to bypass NSImage caching
+            with open(image_path, 'rb') as f:
+                image_data = NSData.dataWithBytes_length_(f.read(), os.path.getsize(image_path))
+            
+            image = NSImage.alloc().initWithData_(image_data)
             if image:
                 ns_item = menu_item._menuitem
                 ns_item.setImage_(image)
                 
-                # Setting the title through NSMenuItem also helps trigger refresh
+                # Setting the title helps trigger visual refresh
                 if title is not None:
                     ns_item.setTitle_(title)
-                    # Also update rumps level for consistency
-                    menu_item._menuitem.setTitle_(title)
-                
-                # Get parent menu and call update
-                parent_menu = ns_item.menu()
-                if parent_menu:
-                    parent_menu.update()
                 
         except Exception as e:
             logger.debug(f"Failed to set menu image: {e}")
