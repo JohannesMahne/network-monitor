@@ -3,6 +3,7 @@ import subprocess
 import re
 from dataclasses import dataclass
 from typing import Optional, List
+from pathlib import Path
 import psutil
 
 from config import get_logger, INTERVALS
@@ -24,24 +25,25 @@ class ConnectionInfo:
 class ConnectionDetector:
     """Detects and monitors network connection type and details."""
     
+    # Airport command path (removed in newer macOS versions)
+    AIRPORT_PATH = '/System/Library/PrivateFrameworks/Apple80211.framework/Versions/Current/Resources/airport'
+    
     def __init__(self):
         self._last_connection: Optional[ConnectionInfo] = None
-        self._wifi_interface = self._find_wifi_interface()
         self._subprocess_cache = get_subprocess_cache()
-        logger.debug(f"ConnectionDetector initialized, WiFi interface: {self._wifi_interface}")
+        self._wifi_interface = self._find_wifi_interface()
+        # Check once at startup if airport command exists
+        self._has_airport = Path(self.AIRPORT_PATH).exists()
+        logger.debug(f"ConnectionDetector initialized, WiFi interface: {self._wifi_interface}, airport={self._has_airport}")
     
     def _find_wifi_interface(self) -> str:
         """Find the WiFi interface name (usually en0 or en1)."""
         try:
+            # Hardware ports change very rarely - cache for 60 seconds
             result = self._subprocess_cache.run(
                 ['networksetup', '-listallhardwareports'],
-                ttl=60.0,  # Cache for 1 minute - hardware doesn't change often
+                ttl=60.0,
                 timeout=INTERVALS.SUBPROCESS_TIMEOUT_SECONDS
-            ) if hasattr(self, '_subprocess_cache') else subprocess.run(
-                ['networksetup', '-listallhardwareports'],
-                capture_output=True,
-                text=True,
-                timeout=5
             )
             lines = result.stdout.split('\n')
             for i, line in enumerate(lines):
@@ -76,13 +78,12 @@ class ConnectionDetector:
         except Exception:
             pass
         
-        # Method 2: Try networksetup command
+        # Method 2: Try networksetup command (cached for 2 seconds - SSID changes slowly)
         try:
-            result = subprocess.run(
+            result = self._subprocess_cache.run(
                 ['networksetup', '-getairportnetwork', self._wifi_interface],
-                capture_output=True,
-                text=True,
-                timeout=5
+                ttl=2.0,
+                timeout=INTERVALS.SUBPROCESS_TIMEOUT_SECONDS
             )
             if result.returncode == 0:
                 # Output: "Current Wi-Fi Network: NetworkName"
@@ -94,32 +95,31 @@ class ConnectionDetector:
         except Exception:
             pass
         
-        # Method 3: Try airport command
-        try:
-            airport_path = '/System/Library/PrivateFrameworks/Apple80211.framework/Versions/Current/Resources/airport'
-            result = subprocess.run(
-                [airport_path, '-I'],
-                capture_output=True,
-                text=True,
-                timeout=5
-            )
-            if result.returncode == 0:
-                match = re.search(r'\s+SSID:\s*(.+)', result.stdout)
-                if match:
-                    ssid = match.group(1).strip()
-                    if ssid and ssid != '<redacted>':
-                        return ssid
-        except Exception:
-            pass
+        # Method 3: Try airport command (only if it exists - removed in newer macOS)
+        if self._has_airport:
+            try:
+                result = self._subprocess_cache.run(
+                    [self.AIRPORT_PATH, '-I'],
+                    ttl=2.0,
+                    timeout=INTERVALS.SUBPROCESS_TIMEOUT_SECONDS,
+                    check_allowed=False  # Special path, not in allowlist
+                )
+                if result.returncode == 0:
+                    match = re.search(r'\s+SSID:\s*(.+)', result.stdout)
+                    if match:
+                        ssid = match.group(1).strip()
+                        if ssid and ssid != '<redacted>':
+                            return ssid
+            except Exception:
+                pass
         
         # Method 4: Check if we're connected to WiFi but SSID is private
         # (macOS 14+ hides SSID without Location Services permission)
         try:
-            result = subprocess.run(
+            result = self._subprocess_cache.run(
                 ['ipconfig', 'getsummary', self._wifi_interface],
-                capture_output=True,
-                text=True,
-                timeout=5
+                ttl=2.0,
+                timeout=INTERVALS.SUBPROCESS_TIMEOUT_SECONDS
             )
             if 'SSID' in result.stdout:
                 # WiFi is connected but SSID is hidden due to privacy
@@ -162,11 +162,11 @@ class ConnectionDetector:
     def _get_interface_type(self, interface: str) -> str:
         """Determine the type of network interface."""
         try:
-            result = subprocess.run(
+            # Hardware ports change very rarely - cache for 60 seconds
+            result = self._subprocess_cache.run(
                 ['networksetup', '-listallhardwareports'],
-                capture_output=True,
-                text=True,
-                timeout=5
+                ttl=60.0,
+                timeout=INTERVALS.SUBPROCESS_TIMEOUT_SECONDS
             )
             lines = result.stdout.split('\n')
             current_port = ""

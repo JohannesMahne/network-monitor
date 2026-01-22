@@ -373,42 +373,48 @@ class OUIDatabase:
 # ============================================================================
 
 class ToolChecker:
-    """Check availability of network scanning tools."""
+    """Check availability of network scanning tools.
+    
+    Results are cached indefinitely since installed tools don't change during runtime.
+    """
     
     _cache: Dict[str, bool] = {}
+    _subprocess_cache = None
+    
+    @classmethod
+    def _get_subprocess_cache(cls):
+        """Get subprocess cache lazily."""
+        if cls._subprocess_cache is None:
+            cls._subprocess_cache = get_subprocess_cache()
+        return cls._subprocess_cache
+    
+    @classmethod
+    def _check_tool(cls, tool_name: str) -> bool:
+        """Check if a tool is available using cached subprocess."""
+        if tool_name not in cls._cache:
+            try:
+                # Tool availability is static - cache for a very long time
+                result = cls._get_subprocess_cache().run(
+                    ['which', tool_name],
+                    ttl=3600.0,  # Cache for 1 hour
+                    timeout=2.0
+                )
+                cls._cache[tool_name] = result.returncode == 0
+            except Exception:
+                cls._cache[tool_name] = False
+        return cls._cache[tool_name]
     
     @classmethod
     def has_arp_scan(cls) -> bool:
-        if 'arp-scan' not in cls._cache:
-            try:
-                result = subprocess.run(['which', 'arp-scan'], 
-                                       capture_output=True, timeout=2)
-                cls._cache['arp-scan'] = result.returncode == 0
-            except Exception:
-                cls._cache['arp-scan'] = False
-        return cls._cache['arp-scan']
+        return cls._check_tool('arp-scan')
     
     @classmethod
     def has_nmap(cls) -> bool:
-        if 'nmap' not in cls._cache:
-            try:
-                result = subprocess.run(['which', 'nmap'],
-                                       capture_output=True, timeout=2)
-                cls._cache['nmap'] = result.returncode == 0
-            except Exception:
-                cls._cache['nmap'] = False
-        return cls._cache['nmap']
+        return cls._check_tool('nmap')
     
     @classmethod
     def has_dns_sd(cls) -> bool:
-        if 'dns-sd' not in cls._cache:
-            try:
-                result = subprocess.run(['which', 'dns-sd'],
-                                       capture_output=True, timeout=2)
-                cls._cache['dns-sd'] = result.returncode == 0
-            except Exception:
-                cls._cache['dns-sd'] = False
-        return cls._cache['dns-sd']
+        return cls._check_tool('dns-sd')
 
 
 # ============================================================================
@@ -492,6 +498,11 @@ class NetworkScanner:
         self._oui_db = OUIDatabase()
         self._mdns_names: Dict[str, str] = {}
         self._subprocess_cache = get_subprocess_cache()
+        
+        # Lazy hostname resolution
+        self._pending_hostname_resolution: Set[str] = set()  # MACs pending resolution
+        self._hostname_resolution_in_progress: bool = False
+        self._hostname_resolve_lock = threading.Lock()
         
         # Check tool availability
         self._has_dns_sd = ToolChecker.has_dns_sd()
@@ -669,7 +680,11 @@ class NetworkScanner:
             socket.setdefaulttimeout(None)
     
     def resolve_missing_hostnames(self) -> None:
-        """Resolve hostnames for devices that don't have one yet."""
+        """Resolve hostnames for devices that don't have one yet.
+        
+        This is a batch operation - prefer using request_hostname_resolution()
+        for lazy/on-demand resolution.
+        """
         with self._lock:
             devices_to_resolve = [
                 d for d in self._devices.values()
@@ -679,21 +694,101 @@ class NetworkScanner:
         for device in devices_to_resolve:
             hostname = self._resolve_hostname(device.ip_address, timeout=2.0)
             if hostname:
+                self._apply_hostname_to_device(device.mac_address, hostname)
+    
+    def _apply_hostname_to_device(self, mac_address: str, hostname: str) -> None:
+        """Apply resolved hostname to a device and update type inference."""
+        with self._lock:
+            if mac_address in self._devices:
+                dev = self._devices[mac_address]
+                dev.hostname = hostname
+                
+                # Re-infer device type with hostname
+                device_type, os_hint, model_hint = infer_device_type(
+                    dev.vendor, hostname, dev.services, dev.mdns_name
+                )
+                if device_type != DeviceType.UNKNOWN:
+                    dev.device_type = device_type
+                if os_hint:
+                    dev.os_hint = os_hint
+                if model_hint:
+                    dev.model_hint = model_hint
+    
+    def request_hostname_resolution(self, mac_address: str) -> None:
+        """Request lazy hostname resolution for a specific device.
+        
+        This is non-blocking - the hostname will be resolved in the background
+        and the device will be updated when complete. Use this when you need
+        a device's hostname but don't want to block the UI.
+        """
+        mac = normalize_mac(mac_address)
+        
+        with self._lock:
+            # Check if device exists and needs resolution
+            if mac not in self._devices:
+                return
+            device = self._devices[mac]
+            if device.hostname is not None:
+                return  # Already resolved
+        
+        # Add to pending queue
+        with self._hostname_resolve_lock:
+            self._pending_hostname_resolution.add(mac)
+            
+            # Start background resolution if not already running
+            if not self._hostname_resolution_in_progress:
+                self._hostname_resolution_in_progress = True
+                threading.Thread(
+                    target=self._process_hostname_queue,
+                    daemon=True
+                ).start()
+    
+    def _process_hostname_queue(self) -> None:
+        """Process pending hostname resolution requests in the background.
+        
+        This is lazy resolution - devices are resolved one at a time with
+        a small delay to avoid overwhelming DNS.
+        """
+        try:
+            while True:
+                # Get next MAC to resolve
+                with self._hostname_resolve_lock:
+                    if not self._pending_hostname_resolution:
+                        self._hostname_resolution_in_progress = False
+                        return
+                    mac = self._pending_hostname_resolution.pop()
+                
+                # Get device IP
                 with self._lock:
-                    if device.mac_address in self._devices:
-                        dev = self._devices[device.mac_address]
-                        dev.hostname = hostname
-                        
-                        # Re-infer device type with hostname
-                        device_type, os_hint, model_hint = infer_device_type(
-                            dev.vendor, hostname, dev.services, dev.mdns_name
-                        )
-                        if device_type != DeviceType.UNKNOWN:
-                            dev.device_type = device_type
-                        if os_hint:
-                            dev.os_hint = os_hint
-                        if model_hint:
-                            dev.model_hint = model_hint
+                    if mac not in self._devices:
+                        continue
+                    device = self._devices[mac]
+                    if device.hostname is not None:
+                        continue  # Already resolved
+                    ip = device.ip_address
+                
+                # Resolve hostname (blocking but in background thread)
+                hostname = self._resolve_hostname(ip, timeout=2.0)
+                if hostname:
+                    self._apply_hostname_to_device(mac, hostname)
+                    logger.debug(f"Lazy resolved {ip} -> {hostname}")
+                
+                # Small delay between resolutions to be nice to DNS
+                time.sleep(0.1)
+        
+        except Exception as e:
+            logger.error(f"Hostname resolution queue error: {e}", exc_info=True)
+            with self._hostname_resolve_lock:
+                self._hostname_resolution_in_progress = False
+    
+    def request_resolution_for_visible(self, macs: List[str]) -> None:
+        """Request hostname resolution for a list of visible devices.
+        
+        Use this when displaying a list of devices - it will prioritize
+        resolving hostnames for the visible devices first.
+        """
+        for mac in macs:
+            self.request_hostname_resolution(mac)
     
     # ========================================================================
     # Main scan

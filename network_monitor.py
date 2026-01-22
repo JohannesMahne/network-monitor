@@ -8,6 +8,8 @@ import threading
 import time
 import io
 import os
+import sys
+import fcntl
 import tempfile
 import atexit
 from datetime import datetime
@@ -33,10 +35,55 @@ info["LSUIElement"] = "1"
 # For colored menu bar icons
 from PIL import Image, ImageDraw
 
-# For line graphs (with non-interactive backend for menu bar app)
-import matplotlib
-matplotlib.use('Agg')
-import matplotlib.pyplot as plt
+# Note: matplotlib is only imported if PIL sparklines fail (fallback)
+# PIL is much faster and uses less memory for sparklines
+
+
+class SingletonLock:
+    """Ensures only one instance of the application can run at a time.
+    
+    Uses file locking (fcntl) which is automatically released when the
+    process exits, even on crash.
+    """
+    
+    def __init__(self, lock_name: str = "network-monitor"):
+        self._lock_file = Path(tempfile.gettempdir()) / f"{lock_name}.lock"
+        self._lock_fd = None
+    
+    def acquire(self) -> bool:
+        """Try to acquire the singleton lock.
+        
+        Returns:
+            True if lock acquired (we're the only instance),
+            False if another instance is already running.
+        """
+        try:
+            self._lock_fd = open(self._lock_file, 'w')
+            fcntl.flock(self._lock_fd.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            # Write our PID for debugging
+            self._lock_fd.write(str(os.getpid()))
+            self._lock_fd.flush()
+            return True
+        except (IOError, OSError):
+            # Lock is held by another process
+            if self._lock_fd:
+                self._lock_fd.close()
+                self._lock_fd = None
+            return False
+    
+    def release(self):
+        """Release the singleton lock."""
+        if self._lock_fd:
+            try:
+                fcntl.flock(self._lock_fd.fileno(), fcntl.LOCK_UN)
+                self._lock_fd.close()
+            except Exception:
+                pass
+            self._lock_fd = None
+
+
+# Global singleton lock
+_singleton_lock = SingletonLock()
 
 
 def create_status_icon(color: str, size: int = 18) -> str:
@@ -111,6 +158,10 @@ class NetworkMonitorApp(rumps.App):
         self._upload_history: deque = deque(maxlen=self.HISTORY_SIZE)
         self._download_history: deque = deque(maxlen=self.HISTORY_SIZE)
         self._latency_history: deque = deque(maxlen=self.HISTORY_SIZE)
+        
+        # Adaptive update intervals
+        self._activity_samples: deque = deque(maxlen=INTERVALS.ACTIVITY_CHECK_SAMPLES)
+        self._current_update_interval: float = INTERVALS.UPDATE_NORMAL_SECONDS
         
         # Track temp directories for cleanup
         self._temp_dirs = [
@@ -240,8 +291,8 @@ class NetworkMonitorApp(rumps.App):
     def _start_monitoring(self):
         """Initialize monitoring and start timer."""
         self.network_stats.initialize()
-        # Start the update timer (runs on main thread)
-        self._update_timer = rumps.Timer(self._timer_callback, 2)
+        # Start the update timer (runs on main thread) with adaptive interval
+        self._update_timer = rumps.Timer(self._timer_callback, self._current_update_interval)
         self._update_timer.start()
     
     def _timer_callback(self, timer):
@@ -250,8 +301,39 @@ class NetworkMonitorApp(rumps.App):
             return
         try:
             self._update()
+            # Adjust timer interval based on activity
+            self._adjust_update_interval()
         except Exception as e:
             logger.error(f"Monitor error: {e}", exc_info=True)
+    
+    def _calculate_adaptive_interval(self) -> float:
+        """Calculate the appropriate update interval based on recent activity.
+        
+        Returns faster intervals during high network activity, slower during idle.
+        """
+        if not self._activity_samples:
+            return INTERVALS.UPDATE_NORMAL_SECONDS
+        
+        # Average recent activity
+        avg_activity = sum(self._activity_samples) / len(self._activity_samples)
+        
+        if avg_activity > INTERVALS.ACTIVITY_HIGH_THRESHOLD:
+            return INTERVALS.UPDATE_FAST_SECONDS
+        elif avg_activity < INTERVALS.ACTIVITY_LOW_THRESHOLD:
+            return INTERVALS.UPDATE_SLOW_SECONDS
+        else:
+            return INTERVALS.UPDATE_NORMAL_SECONDS
+    
+    def _adjust_update_interval(self):
+        """Adjust the timer interval based on current activity level."""
+        new_interval = self._calculate_adaptive_interval()
+        
+        # Only update if interval has changed significantly (avoid constant restarts)
+        if abs(new_interval - self._current_update_interval) > 0.5:
+            self._current_update_interval = new_interval
+            # Update timer interval
+            self._update_timer.interval = new_interval
+            logger.debug(f"Adjusted update interval to {new_interval}s")
     
     def _update(self):
         """Update all statistics and UI."""
@@ -289,6 +371,10 @@ class NetworkMonitorApp(rumps.App):
             self._download_history.append(stats.download_speed)
             if self._current_latency is not None:
                 self._latency_history.append(self._current_latency)
+            
+            # Record activity for adaptive intervals
+            total_activity = stats.upload_speed + stats.download_speed
+            self._activity_samples.append(total_activity)
             
             # Update menu bar title based on settings
             self._update_title(stats)
@@ -510,12 +596,96 @@ class NetworkMonitorApp(rumps.App):
     
     def _create_sparkline_image(self, values: list, color: str = '#007AFF', 
                                   width: int = 120, height: int = 16) -> str:
-        """Generate a matplotlib sparkline image and return path to PNG file.
+        """Generate a PIL-based sparkline image and return path to PNG file.
         
-        Based on: https://stackoverflow.com/questions/27543605/creating-sparklines-using-matplotlib-in-python
+        Uses PIL/Pillow for faster rendering and lower memory usage than matplotlib.
+        Falls back to matplotlib if PIL rendering fails.
         """
         if not values or len(values) < 2:
             values = [0, 0]
+        
+        try:
+            return self._create_sparkline_pil(values, color, width, height)
+        except Exception as e:
+            logger.debug(f"PIL sparkline failed, falling back to matplotlib: {e}")
+            return self._create_sparkline_matplotlib(values, color, width, height)
+    
+    def _create_sparkline_pil(self, values: list, color: str = '#007AFF',
+                               width: int = 120, height: int = 16) -> str:
+        """Create sparkline using PIL/Pillow - fast and lightweight."""
+        from PIL import Image, ImageDraw
+        import hashlib
+        
+        # Create image with transparency
+        img = Image.new('RGBA', (width, height), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(img)
+        
+        # Convert hex color to RGB tuple
+        if color.startswith('#'):
+            r = int(color[1:3], 16)
+            g = int(color[3:5], 16)
+            b = int(color[5:7], 16)
+        else:
+            r, g, b = 0, 122, 255  # Default blue
+        
+        line_color = (r, g, b, 255)
+        fill_color = (r, g, b, 40)  # Semi-transparent fill
+        
+        # Calculate scaling
+        padding_x = 2
+        padding_y = 2
+        graph_width = width - 2 * padding_x
+        graph_height = height - 2 * padding_y
+        
+        max_val = max(values) if max(values) > 0 else 1
+        min_val = min(values)
+        val_range = max_val - min_val if max_val != min_val else 1
+        
+        # Calculate points
+        points = []
+        for i, val in enumerate(values):
+            x = padding_x + (i / (len(values) - 1)) * graph_width
+            # Normalize value to graph height (invert Y since PIL coords are top-down)
+            normalized = (val - min_val) / val_range
+            y = padding_y + (1 - normalized) * graph_height
+            points.append((x, y))
+        
+        # Draw filled area under the line
+        if len(points) >= 2:
+            fill_points = list(points)
+            fill_points.append((points[-1][0], height - padding_y))
+            fill_points.append((points[0][0], height - padding_y))
+            draw.polygon(fill_points, fill=fill_color)
+        
+        # Draw the line
+        if len(points) >= 2:
+            draw.line(points, fill=line_color, width=1)
+        
+        # Draw last point marker (small circle)
+        if points:
+            last_x, last_y = points[-1]
+            r_dot = 2
+            draw.ellipse([last_x - r_dot, last_y - r_dot, 
+                         last_x + r_dot, last_y + r_dot], fill=line_color)
+        
+        # Save to temp file
+        temp_dir = Path(tempfile.gettempdir()) / STORAGE.SPARKLINE_TEMP_DIR
+        temp_dir.mkdir(exist_ok=True)
+        
+        # Use hash of values for filename to enable caching
+        val_hash = hashlib.md5(str(values).encode()).hexdigest()[:8]
+        img_path = temp_dir / f'spark_{color.replace("#", "")}_{val_hash}.png'
+        
+        img.save(str(img_path), 'PNG')
+        return str(img_path)
+    
+    def _create_sparkline_matplotlib(self, values: list, color: str = '#007AFF',
+                                      width: int = 120, height: int = 16) -> str:
+        """Create sparkline using matplotlib - fallback for complex cases."""
+        import matplotlib
+        matplotlib.use('Agg')
+        import matplotlib.pyplot as plt
+        import hashlib
         
         # Create figure with exact pixel dimensions
         dpi = 72
@@ -545,8 +715,6 @@ class NetworkMonitorApp(rumps.App):
         temp_dir = Path(tempfile.gettempdir()) / STORAGE.SPARKLINE_TEMP_DIR
         temp_dir.mkdir(exist_ok=True)
         
-        # Use hash of values for filename to enable caching
-        import hashlib
         val_hash = hashlib.md5(str(values).encode()).hexdigest()[:8]
         img_path = temp_dir / f'spark_{color.replace("#", "")}_{val_hash}.png'
         
@@ -824,6 +992,7 @@ class NetworkMonitorApp(rumps.App):
         """Update devices menu - dynamically populated with device type icons.
         
         Click on any device to rename it.
+        Uses lazy hostname resolution - only resolves hostnames for visible devices.
         """
         devices = self.network_scanner.get_all_devices()
         online_devices = [d for d in devices if d.is_online]
@@ -839,6 +1008,10 @@ class NetworkMonitorApp(rumps.App):
             return (not has_custom, not has_model, not has_name, not has_type, d.ip_address)
         
         online_devices.sort(key=sort_key)
+        
+        # Lazy hostname resolution: request resolution only for visible devices (top 5)
+        visible_macs = [d.mac_address for d in online_devices[:5]]
+        self.network_scanner.request_resolution_for_visible(visible_macs)
         
         # Clear and rebuild menu
         self._safe_menu_clear(self.menu_devices)
@@ -1297,7 +1470,25 @@ Built with Python, rumps, and matplotlib.
 
 def main():
     """Entry point for the application."""
-    # Initialize logging first
+    # Check for existing instance first (before logging to avoid confusion)
+    if not _singleton_lock.acquire():
+        # Another instance is running - show alert and exit
+        print("Network Monitor is already running.", file=sys.stderr)
+        try:
+            # Try to show a user-friendly alert
+            rumps.alert(
+                title="Network Monitor",
+                message="Network Monitor is already running.\n\nCheck your menu bar for the existing instance.",
+                ok="OK"
+            )
+        except Exception:
+            pass  # If alert fails, we've already printed to stderr
+        sys.exit(1)
+    
+    # Register lock release on exit
+    atexit.register(_singleton_lock.release)
+    
+    # Initialize logging
     data_dir = Path.home() / STORAGE.DATA_DIR_NAME
     setup_logging(data_dir=data_dir, debug=False, console_output=True)
     logger.info("Network Monitor starting...")
@@ -1308,6 +1499,8 @@ def main():
     except Exception as e:
         logger.critical(f"Application crashed: {e}", exc_info=True)
         raise
+    finally:
+        _singleton_lock.release()
 
 
 if __name__ == "__main__":

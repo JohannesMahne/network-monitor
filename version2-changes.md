@@ -889,11 +889,11 @@ dependencies = [
 - [x] Create comprehensive mocks for testing (`tests/mocks.py`)
 - [x] Create AppController with business logic (`app/controller.py`)
 
-### Phase 3: Performance (1-2 weeks)
-- [ ] Replace matplotlib sparklines with PIL
-- [ ] Implement adaptive update intervals
-- [ ] Add lazy device resolution
-- [ ] Optimize subprocess calls
+### Phase 3: Performance (1-2 weeks) ✅ COMPLETED
+- [x] Replace matplotlib sparklines with PIL (with matplotlib fallback)
+- [x] Implement adaptive update intervals (fast/normal/slow based on activity)
+- [x] Add lazy device resolution (on-demand hostname resolution for visible devices)
+- [x] Optimize subprocess calls (caching for connection detection, tool checking)
 
 ### Phase 4: Features (2-3 weeks)
 - [ ] Add budget notifications

@@ -24,6 +24,16 @@ class Intervals:
     # Main update loop
     UPDATE_SECONDS: float = 2.0
     
+    # Adaptive update intervals (adjusts based on activity)
+    UPDATE_FAST_SECONDS: float = 1.0     # When high activity detected
+    UPDATE_NORMAL_SECONDS: float = 2.0   # Normal operation
+    UPDATE_SLOW_SECONDS: float = 5.0     # When idle/low activity
+    
+    # Activity thresholds for adaptive intervals (bytes/sec)
+    ACTIVITY_HIGH_THRESHOLD: int = 100_000     # 100 KB/s = fast updates
+    ACTIVITY_LOW_THRESHOLD: int = 1_000        # 1 KB/s = slow updates
+    ACTIVITY_CHECK_SAMPLES: int = 5            # Number of samples to average
+    
     # Device scanning
     DEVICE_SCAN_SECONDS: float = 30.0
     MDNS_SCAN_SECONDS: float = 120.0
