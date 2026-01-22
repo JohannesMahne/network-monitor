@@ -7,6 +7,11 @@ from typing import Dict, List, Any, Optional
 from dataclasses import dataclass, asdict
 import threading
 
+from config import get_logger, STORAGE, INTERVALS
+from config.exceptions import StorageError
+
+logger = get_logger(__name__)
+
 
 @dataclass
 class ConnectionStats:
@@ -44,8 +49,8 @@ class ConnectionStats:
 class JsonStore:
     """Handles persistence of network statistics to JSON file."""
     
-    DEFAULT_DATA_DIR = Path.home() / ".network-monitor"
-    DEFAULT_DATA_FILE = "stats.json"
+    DEFAULT_DATA_DIR = Path.home() / STORAGE.DATA_DIR_NAME
+    DEFAULT_DATA_FILE = STORAGE.STATS_FILE
     
     def __init__(self, data_dir: Optional[Path] = None):
         self.data_dir = data_dir or self.DEFAULT_DATA_DIR
@@ -54,9 +59,10 @@ class JsonStore:
         self._data: Dict[str, Dict[str, Any]] = {}
         self._dirty = False  # Track if data needs saving
         self._last_save_time: float = 0  # Last save timestamp
-        self._save_interval: float = 30.0  # Save at most every 30 seconds
+        self._save_interval: float = INTERVALS.SAVE_INTERVAL_SECONDS
         self._ensure_data_dir()
         self._load()
+        logger.info(f"JsonStore initialized at {self.data_file}")
     
     def _ensure_data_dir(self) -> None:
         """Create data directory if it doesn't exist."""
@@ -68,11 +74,13 @@ class JsonStore:
             try:
                 with open(self.data_file, 'r') as f:
                     self._data = json.load(f)
+                logger.debug(f"Loaded {len(self._data)} days of data")
             except (json.JSONDecodeError, IOError) as e:
-                print(f"Warning: Could not load data file: {e}")
+                logger.warning(f"Could not load data file: {e}")
                 self._data = {}
         else:
             self._data = {}
+            logger.debug("No existing data file, starting fresh")
     
     def _save(self, force: bool = False) -> None:
         """Save data to JSON file if dirty and interval has passed.
@@ -97,8 +105,10 @@ class JsonStore:
             temp_file.replace(self.data_file)
             self._dirty = False
             self._last_save_time = current_time
+            logger.debug("Data saved successfully")
         except IOError as e:
-            print(f"Error saving data: {e}")
+            logger.error(f"Error saving data: {e}")
+            raise StorageError(f"Failed to save data: {e}", {"path": str(self.data_file)})
     
     def flush(self) -> None:
         """Force save any pending changes. Call on application shutdown."""
@@ -211,9 +221,11 @@ class JsonStore:
                 del self._data[today]
             self._save(force=True)  # Force save for user-initiated action
     
-    def cleanup_old_data(self, keep_days: int = 30) -> None:
+    def cleanup_old_data(self, keep_days: int = None) -> None:
         """Remove data older than specified days."""
         from datetime import timedelta
+        
+        keep_days = keep_days or STORAGE.RETENTION_DAYS
         
         with self._lock:
             cutoff = (date.today() - timedelta(days=keep_days)).isoformat()
@@ -223,6 +235,7 @@ class JsonStore:
                 del self._data[key]
             
             if keys_to_remove:
+                logger.info(f"Cleaned up {len(keys_to_remove)} old data entries")
                 self._save(force=True)  # Force save for cleanup action
     
     def get_data_file_path(self) -> str:

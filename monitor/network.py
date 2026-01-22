@@ -5,6 +5,9 @@ from typing import Optional, Tuple
 import psutil
 
 from monitor.utils import format_bytes
+from config import get_logger, THRESHOLDS
+
+logger = get_logger(__name__)
 
 
 @dataclass
@@ -48,6 +51,7 @@ class NetworkStats:
         self._session_start_recv = recv
         self._session_start_time = current_time
         self._initialized = True
+        logger.debug("NetworkStats initialized")
     
     def get_current_stats(self) -> Optional[SpeedStats]:
         """Get current network statistics including speed."""
@@ -77,8 +81,8 @@ class NetworkStats:
         
         # Store for averaging
         self._speed_samples.append((upload_speed, download_speed))
-        # Keep last 100 samples for average calculation
-        if len(self._speed_samples) > 100:
+        # Keep last N samples for average calculation
+        if len(self._speed_samples) > THRESHOLDS.SPEED_SAMPLE_COUNT:
             self._speed_samples.pop(0)
         
         # Update last values

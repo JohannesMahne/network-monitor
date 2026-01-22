@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "network-monitor"
-version = "1.0.0"
+version = "1.1.0"
 description = "A macOS menu bar application for monitoring network traffic"
 readme = "README.md"
 license = {text = "MIT"}
@@ -50,7 +50,7 @@ Repository = "https://github.com/JohannesMahne/network-monitor"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["monitor*", "storage*", "service*"]
+include = ["monitor*", "storage*", "service*", "config*", "app*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -65,5 +65,5 @@ warn_unused_configs = true
 ignore_missing_imports = true
 
 [tool.coverage.run]
-source = ["monitor", "storage", "service"]
+source = ["monitor", "storage", "service", "config", "app"]
 omit = ["*/tests/*", "*/__pycache__/*"]

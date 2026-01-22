@@ -5,12 +5,16 @@ import subprocess
 from pathlib import Path
 from typing import Optional
 
+from config import get_logger, STORAGE, LAUNCH_AGENT
+
+logger = get_logger(__name__)
+
 
 class LaunchAgentManager:
     """Manages the macOS Launch Agent for auto-starting the app at login."""
     
-    AGENT_LABEL = "com.networkmonitor.app"
-    AGENT_FILENAME = f"{AGENT_LABEL}.plist"
+    AGENT_LABEL = LAUNCH_AGENT.AGENT_LABEL
+    AGENT_FILENAME = LAUNCH_AGENT.AGENT_FILENAME
     
     def __init__(self):
         self.launch_agents_dir = Path.home() / "Library" / "LaunchAgents"
@@ -18,6 +22,7 @@ class LaunchAgentManager:
         self.app_dir = Path(__file__).parent.parent.resolve()
         self.python_path = self._get_python_path()
         self.script_path = self.app_dir / "network_monitor.py"
+        logger.debug(f"LaunchAgentManager initialized: {self.agent_path}")
     
     def _get_python_path(self) -> str:
         """Get the path to the Python interpreter (preferring venv if available)."""
@@ -30,6 +35,7 @@ class LaunchAgentManager:
     
     def _create_plist_content(self) -> dict:
         """Create the Launch Agent plist content."""
+        data_dir = Path.home() / STORAGE.DATA_DIR_NAME
         return {
             "Label": self.AGENT_LABEL,
             "ProgramArguments": [
@@ -39,8 +45,8 @@ class LaunchAgentManager:
             "WorkingDirectory": str(self.app_dir),
             "RunAtLoad": True,
             "KeepAlive": False,
-            "StandardOutPath": str(Path.home() / ".network-monitor" / "stdout.log"),
-            "StandardErrorPath": str(Path.home() / ".network-monitor" / "stderr.log"),
+            "StandardOutPath": str(data_dir / STORAGE.STDOUT_LOG),
+            "StandardErrorPath": str(data_dir / STORAGE.STDERR_LOG),
             "EnvironmentVariables": {
                 "PATH": "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
             }
@@ -72,7 +78,7 @@ class LaunchAgentManager:
             self.launch_agents_dir.mkdir(parents=True, exist_ok=True)
             
             # Ensure log directory exists
-            log_dir = Path.home() / ".network-monitor"
+            log_dir = Path.home() / STORAGE.DATA_DIR_NAME
             log_dir.mkdir(parents=True, exist_ok=True)
             
             # Create the plist file
@@ -84,11 +90,14 @@ class LaunchAgentManager:
             # Load the agent (so it takes effect immediately for future logins)
             # Note: We don't load it now since the app is already running
             
+            logger.info("Launch at Login enabled")
             return True, "Launch at Login enabled"
             
         except PermissionError:
+            logger.error("Permission denied when enabling launch at login")
             return False, "Permission denied - cannot write to LaunchAgents"
         except Exception as e:
+            logger.error(f"Error enabling launch at login: {e}")
             return False, f"Error: {str(e)}"
     
     def disable(self) -> tuple[bool, str]:
@@ -108,11 +117,14 @@ class LaunchAgentManager:
             if self.agent_path.exists():
                 self.agent_path.unlink()
             
+            logger.info("Launch at Login disabled")
             return True, "Launch at Login disabled"
             
         except PermissionError:
+            logger.error("Permission denied when disabling launch at login")
             return False, "Permission denied - cannot remove LaunchAgent"
         except Exception as e:
+            logger.error(f"Error disabling launch at login: {e}")
             return False, f"Error: {str(e)}"
     
     def toggle(self) -> tuple[bool, str]:

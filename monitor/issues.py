@@ -6,6 +6,11 @@ from datetime import datetime
 from typing import List, Optional
 from enum import Enum
 
+from config import get_logger, THRESHOLDS, NETWORK, INTERVALS
+from config.subprocess_cache import safe_run
+
+logger = get_logger(__name__)
+
 
 class IssueType(Enum):
     """Types of network issues."""
@@ -47,19 +52,20 @@ class NetworkIssue:
 class IssueDetector:
     """Detects and logs network issues."""
     
-    # Thresholds for issue detection
-    HIGH_LATENCY_MS = 200  # Ping above this is considered high
-    SPEED_DROP_THRESHOLD = 0.1  # Speed below 10% of average triggers alert
-    PING_HOST = "8.8.8.8"  # Google DNS for latency checks
+    # Thresholds for issue detection - use constants
+    HIGH_LATENCY_MS = THRESHOLDS.HIGH_LATENCY_MS
+    SPEED_DROP_THRESHOLD = THRESHOLDS.SPEED_DROP_RATIO
+    PING_HOST = NETWORK.DEFAULT_PING_HOST
     
-    def __init__(self, max_issues: int = 100):
+    def __init__(self, max_issues: int = None):
         self._issues: List[NetworkIssue] = []
-        self._max_issues = max_issues
+        self._max_issues = max_issues or THRESHOLDS.MAX_ISSUES_STORED
         self._was_connected = True
         self._last_disconnect_time: Optional[float] = None
         self._last_latency_check: float = 0
-        self._latency_check_interval = 30  # seconds
+        self._latency_check_interval = INTERVALS.LATENCY_CHECK_SECONDS * 3  # Less frequent for issue check
         self._average_speed: float = 0
+        logger.debug("IssueDetector initialized")
     
     def check_connectivity(self, is_connected: bool) -> Optional[NetworkIssue]:
         """Check for connectivity changes and log issues."""
@@ -127,7 +133,8 @@ class IssueDetector:
         self._average_speed = average_speed
         ratio = current_speed / average_speed
         
-        if ratio < self.SPEED_DROP_THRESHOLD and average_speed > 1024:  # Only if avg > 1KB/s
+        # Only alert if speed dropped significantly AND average was meaningful
+        if ratio < self.SPEED_DROP_THRESHOLD and average_speed > THRESHOLDS.MIN_SPEED_FOR_DROP_ALERT:
             issue = NetworkIssue(
                 timestamp=datetime.now(),
                 issue_type=IssueType.SPEED_DROP,
@@ -158,11 +165,9 @@ class IssueDetector:
         """Ping and return latency in milliseconds."""
         target = host or self.PING_HOST
         try:
-            result = subprocess.run(
+            result = safe_run(
                 ['ping', '-c', '1', '-W', '2', target],
-                capture_output=True,
-                text=True,
-                timeout=5
+                timeout=INTERVALS.PING_TIMEOUT_SECONDS + 3  # Allow for ping timeout + overhead
             )
             if result.returncode == 0:
                 import re

@@ -23,6 +23,7 @@ from monitor.traffic import TrafficMonitor, format_traffic_bytes
 from storage.json_store import JsonStore
 from storage.settings import get_settings_manager, ConnectionBudget, BudgetPeriod
 from service.launch_agent import get_launch_agent_manager
+from config import setup_logging, get_logger, INTERVALS, THRESHOLDS, STORAGE, COLORS, UI
 
 # Hide dock icon (menu bar only app)
 from Foundation import NSBundle
@@ -43,12 +44,12 @@ def create_status_icon(color: str, size: int = 18) -> str:
     img = Image.new('RGBA', (size, size), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
     
-    # Color mapping
+    # Color mapping - use constants
     colors = {
-        'green': (52, 199, 89, 255),    # macOS green
-        'yellow': (255, 204, 0, 255),   # macOS yellow  
-        'red': (255, 59, 48, 255),      # macOS red
-        'gray': (142, 142, 147, 255),   # macOS gray
+        'green': COLORS.GREEN_RGBA,
+        'yellow': COLORS.YELLOW_RGBA,
+        'red': COLORS.RED_RGBA,
+        'gray': COLORS.GRAY_RGBA,
     }
     fill_color = colors.get(color, colors['gray'])
     
@@ -57,7 +58,7 @@ def create_status_icon(color: str, size: int = 18) -> str:
     draw.ellipse([padding, padding, size - padding, size - padding], fill=fill_color)
     
     # Save to temp file
-    temp_dir = Path(tempfile.gettempdir()) / 'netmon-icons'
+    temp_dir = Path(tempfile.gettempdir()) / STORAGE.ICON_TEMP_DIR
     temp_dir.mkdir(exist_ok=True)
     icon_path = temp_dir / f'status_{color}.png'
     img.save(icon_path, 'PNG')
@@ -65,13 +66,16 @@ def create_status_icon(color: str, size: int = 18) -> str:
     return str(icon_path)
 
 
+logger = get_logger(__name__)
+
+
 class NetworkMonitorApp(rumps.App):
     """Main menu bar application for network monitoring."""
     
-    UPDATE_INTERVAL = 2  # seconds between updates
+    UPDATE_INTERVAL = INTERVALS.UPDATE_SECONDS
     
     # History size for sparkline graph (fits nicely in menu)
-    HISTORY_SIZE = 20
+    HISTORY_SIZE = THRESHOLDS.SPARKLINE_HISTORY_SIZE
     
     def __init__(self):
         super().__init__(
@@ -95,11 +99,11 @@ class NetworkMonitorApp(rumps.App):
         self._last_connection_key = ""
         self._connection_start_bytes = (0, 0)
         self._last_device_scan = 0
-        self._device_scan_interval = 30  # seconds
+        self._device_scan_interval = INTERVALS.DEVICE_SCAN_SECONDS
         self._last_traffic_update = 0
-        self._traffic_update_interval = 5  # seconds
+        self._traffic_update_interval = INTERVALS.TRAFFIC_UPDATE_SECONDS
         self._last_latency_check = 0
-        self._latency_check_interval = 10  # seconds
+        self._latency_check_interval = INTERVALS.LATENCY_CHECK_SECONDS
         self._current_latency = None
         self._latency_samples = []
         
@@ -110,9 +114,11 @@ class NetworkMonitorApp(rumps.App):
         
         # Track temp directories for cleanup
         self._temp_dirs = [
-            Path(tempfile.gettempdir()) / 'netmon-icons',
-            Path(tempfile.gettempdir()) / 'netmon-sparklines',
+            Path(tempfile.gettempdir()) / STORAGE.ICON_TEMP_DIR,
+            Path(tempfile.gettempdir()) / STORAGE.SPARKLINE_TEMP_DIR,
         ]
+        
+        logger.info("NetworkMonitorApp initializing...")
         
         # Register cleanup on exit
         atexit.register(self._cleanup_temp_files)
@@ -245,7 +251,7 @@ class NetworkMonitorApp(rumps.App):
         try:
             self._update()
         except Exception as e:
-            print(f"Monitor error: {e}")
+            logger.error(f"Monitor error: {e}", exc_info=True)
     
     def _update(self):
         """Update all statistics and UI."""
@@ -328,11 +334,12 @@ class NetworkMonitorApp(rumps.App):
             # Occasionally resolve hostnames for newly discovered devices
             self.network_scanner.resolve_missing_hostnames()
         except Exception as e:
-            print(f"Device scan error: {e}")
+            logger.error(f"Device scan error: {e}", exc_info=True)
     
     def _initial_device_scan(self):
         """Initial device scan on startup - quick mode for fast results."""
         try:
+            logger.info("Starting initial device scan...")
             # Quick scan first for immediate results
             self.network_scanner.scan(force=True, quick=True)
             self._last_device_scan = time.time()
@@ -344,8 +351,9 @@ class NetworkMonitorApp(rumps.App):
             # Resolve hostnames for better device identification
             time.sleep(1)
             self.network_scanner.resolve_missing_hostnames()
+            logger.info("Initial device scan completed")
         except Exception as e:
-            print(f"Initial device scan error: {e}")
+            logger.error(f"Initial device scan error: {e}", exc_info=True)
     
     def _create_gauge_icon(self, color: str, size: int = 18) -> str:
         """Create a gauge/speedometer icon colored by latency status.
@@ -356,12 +364,12 @@ class NetworkMonitorApp(rumps.App):
         from PIL import Image, ImageDraw
         import math
         
-        # Color mapping
+        # Color mapping - use constants
         colors = {
-            "green": "#34C759",   # iOS green
-            "yellow": "#FF9500",  # iOS orange  
-            "red": "#FF3B30",     # iOS red
-            "gray": "#8E8E93",    # iOS gray
+            "green": COLORS.GREEN_HEX,
+            "yellow": COLORS.YELLOW_HEX,
+            "red": COLORS.RED_HEX,
+            "gray": COLORS.GRAY_HEX,
         }
         fill_color = colors.get(color, colors["gray"])
         
@@ -400,7 +408,7 @@ class NetworkMonitorApp(rumps.App):
                       center_x + dot_r, center_y + dot_r], fill=fill_color)
         
         # Save to temp file
-        temp_dir = Path(tempfile.gettempdir()) / 'netmon-icons'
+        temp_dir = Path(tempfile.gettempdir()) / STORAGE.ICON_TEMP_DIR
         temp_dir.mkdir(exist_ok=True)
         img_path = temp_dir / f'gauge_{color}.png'
         img.save(str(img_path), 'PNG')
@@ -534,7 +542,7 @@ class NetworkMonitorApp(rumps.App):
         plt.subplots_adjust(left=0, right=1, top=1, bottom=0)
         
         # Save to temp file
-        temp_dir = Path(tempfile.gettempdir()) / 'netmon-sparklines'
+        temp_dir = Path(tempfile.gettempdir()) / STORAGE.SPARKLINE_TEMP_DIR
         temp_dir.mkdir(exist_ok=True)
         
         # Use hash of values for filename to enable caching
@@ -559,10 +567,10 @@ class NetworkMonitorApp(rumps.App):
     
     def _update_sparklines(self, stats):
         """Update the sparkline graph display with matplotlib line graphs."""
-        # Colors for each metric
-        up_color = '#34C759'    # Green for upload
-        down_color = '#007AFF'  # Blue for download
-        lat_color = '#FF9500'   # Orange for latency
+        # Colors for each metric - use constants
+        up_color = COLORS.UPLOAD_COLOR
+        down_color = COLORS.DOWNLOAD_COLOR
+        lat_color = COLORS.LATENCY_COLOR
         
         # Upload sparkline
         up_cur = stats.upload_speed if stats else 0
@@ -618,11 +626,11 @@ class NetworkMonitorApp(rumps.App):
             if latency is not None:
                 self._current_latency = latency
                 self._latency_samples.append(latency)
-                # Keep last 30 samples for average
-                if len(self._latency_samples) > 30:
+                # Keep last N samples for average
+                if len(self._latency_samples) > THRESHOLDS.LATENCY_SAMPLE_COUNT:
                     self._latency_samples.pop(0)
         except Exception as e:
-            print(f"Latency check error: {e}")
+            logger.error(f"Latency check error: {e}", exc_info=True)
     
     def _update_history(self):
         """Update history section with weekly and monthly stats."""
@@ -937,8 +945,9 @@ class NetworkMonitorApp(rumps.App):
                 subtitle="Scan Complete",
                 message=f"Found {online} online devices ({total} total known)"
             )
+            logger.info(f"Force scan completed: {online} online, {total} total")
         except Exception as e:
-            print(f"Force scan error: {e}")
+            logger.error(f"Force scan error: {e}", exc_info=True)
     
     def _toggle_launch_at_login(self, sender):
         """Toggle Launch at Login setting."""
@@ -1222,7 +1231,7 @@ class NetworkMonitorApp(rumps.App):
     
     def _show_about(self, _):
         """Show About dialog."""
-        about_text = """Network Monitor v1.0
+        about_text = """Network Monitor v1.1
 
 A lightweight macOS menu bar app for monitoring network activity.
 
@@ -1234,6 +1243,9 @@ Features:
 • Data budgets per connection
 • Daily/weekly/monthly statistics
 • Launch at login support
+
+v1.1: Added structured logging, config module,
+subprocess caching, event bus architecture.
 
 Data is stored locally in:
 ~/.network-monitor/
@@ -1259,32 +1271,43 @@ Built with Python, rumps, and matplotlib.
                 print(f"Warning: Could not clean up {temp_dir}: {e}")
     
     def _cleanup_old_sparklines(self) -> None:
-        """Remove sparkline images older than 5 minutes."""
+        """Remove sparkline images older than configured max age."""
         import time as time_module
-        sparkline_dir = Path(tempfile.gettempdir()) / 'netmon-sparklines'
+        sparkline_dir = Path(tempfile.gettempdir()) / STORAGE.SPARKLINE_TEMP_DIR
         if not sparkline_dir.exists():
             return
         
-        cutoff = time_module.time() - 300  # 5 minutes
+        cutoff = time_module.time() - STORAGE.SPARKLINE_MAX_AGE_SECONDS
         try:
             for file in sparkline_dir.glob('*.png'):
                 if file.stat().st_mtime < cutoff:
                     file.unlink()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Sparkline cleanup error: {e}")
     
     def _quit(self, _):
         """Quit the application."""
+        logger.info("Application shutting down...")
         self._running = False
         self.store.flush()  # Save any pending data
         self._cleanup_temp_files()
+        logger.info("Shutdown complete")
         rumps.quit_application()
 
 
 def main():
     """Entry point for the application."""
-    app = NetworkMonitorApp()
-    app.run()
+    # Initialize logging first
+    data_dir = Path.home() / STORAGE.DATA_DIR_NAME
+    setup_logging(data_dir=data_dir, debug=False, console_output=True)
+    logger.info("Network Monitor starting...")
+    
+    try:
+        app = NetworkMonitorApp()
+        app.run()
+    except Exception as e:
+        logger.critical(f"Application crashed: {e}", exc_info=True)
+        raise
 
 
 if __name__ == "__main__":

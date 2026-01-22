@@ -8,6 +8,10 @@ from collections import defaultdict
 import psutil
 
 from monitor.utils import format_bytes
+from config import get_logger, INTERVALS
+from config.subprocess_cache import get_subprocess_cache
+
+logger = get_logger(__name__)
 
 
 @dataclass
@@ -193,6 +197,8 @@ class TrafficMonitor:
         self._process_traffic: Dict[int, ProcessTraffic] = {}
         self._last_nettop_data: Dict[str, Tuple[int, int]] = {}  # process -> (bytes_in, bytes_out)
         self._lock = None  # Will use threading lock if needed
+        self._subprocess_cache = get_subprocess_cache()
+        logger.debug("TrafficMonitor initialized")
         
     def _get_process_name(self, pid: int) -> Optional[str]:
         """Get process name from PID."""
@@ -226,11 +232,10 @@ class TrafficMonitor:
         try:
             # Run nettop for one sample in delta mode
             # -P: show by process, -L 1: 1 sample, -d: delta mode, -J bytes
-            proc = subprocess.run(
+            proc = self._subprocess_cache.run(
                 ['nettop', '-P', '-L', '1', '-J', 'bytes_in,bytes_out'],
-                capture_output=True,
-                text=True,
-                timeout=5
+                ttl=2.0,  # Cache briefly
+                timeout=INTERVALS.NETTOP_TIMEOUT_SECONDS
             )
             
             if proc.returncode == 0:
@@ -297,13 +302,9 @@ class TrafficMonitor:
                                     result[proc_name] = (bytes_in, bytes_out)
                         except (ValueError, IndexError):
                             continue
-        except subprocess.TimeoutExpired:
-            pass
-        except FileNotFoundError:
-            # nettop not available
-            pass
         except Exception as e:
-            print(f"nettop error: {e}")
+            # Log but don't fail - nettop may not be available
+            logger.debug(f"nettop error (may be unavailable): {e}")
         
         return result
     
@@ -314,11 +315,10 @@ class TrafficMonitor:
         try:
             # Use lsof with short timeout - this works without root on macOS
             # -i: network connections, -n: no DNS, -P: port numbers, +c0: full command
-            result = subprocess.run(
+            result = self._subprocess_cache.run(
                 ['lsof', '+c', '0', '-i', '-n', '-P'],
-                capture_output=True,
-                text=True,
-                timeout=3  # Short timeout
+                ttl=3.0,  # Cache briefly
+                timeout=INTERVALS.LSOF_TIMEOUT_SECONDS
             )
             
             if result.returncode == 0:

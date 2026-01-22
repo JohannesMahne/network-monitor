@@ -168,24 +168,96 @@ Data is organized by date and connection:
 
 ```
 network-monitor/
-├── network_monitor.py    # Main application
+├── network_monitor.py    # Main application entry point
+├── app/                  # Application architecture (v1.1)
+│   ├── __init__.py
+│   ├── events.py         # Event bus for pub/sub communication
+│   ├── dependencies.py   # Dependency injection container
+│   ├── controller.py     # Business logic orchestration
+│   └── views/
+│       ├── icons.py      # Icon and sparkline generation
+│       └── menu_builder.py  # Menu construction helpers
+├── config/               # Configuration module (v1.1)
+│   ├── __init__.py
+│   ├── constants.py      # Centralized configuration values
+│   ├── exceptions.py     # Custom exception hierarchy
+│   ├── logging_config.py # Structured logging setup
+│   └── subprocess_cache.py  # Cached subprocess execution
 ├── monitor/
 │   ├── __init__.py
-│   ├── network.py        # Network stats collection
 │   ├── connection.py     # WiFi/Ethernet detection
 │   ├── issues.py         # Issue detection
+│   ├── network.py        # Network stats collection
 │   ├── scanner.py        # Network device discovery (Fing-like)
-│   └── traffic.py        # Traffic breakdown by process
+│   ├── traffic.py        # Traffic breakdown by process
+│   └── utils.py          # Shared utility functions
 ├── storage/
 │   ├── __init__.py
-│   └── json_store.py     # JSON persistence with history
+│   ├── json_store.py     # JSON persistence with history
+│   └── settings.py       # Application settings management
 ├── service/
 │   ├── __init__.py
 │   └── launch_agent.py   # macOS Launch Agent for auto-start
+├── tests/
+│   ├── __init__.py
+│   ├── conftest.py       # Pytest fixtures
+│   ├── mocks.py          # Comprehensive mock implementations
+│   ├── test_app.py       # Tests for app module
+│   ├── test_config.py    # Tests for config module
+│   ├── test_json_store.py
+│   ├── test_network.py
+│   └── test_scanner.py
+├── pyproject.toml        # Project configuration
 ├── requirements.txt
+├── requirements-dev.txt  # Development dependencies
 ├── README.md
 └── run.sh
 ```
+
+## Development
+
+### Setup Development Environment
+
+```bash
+# Create virtual environment
+python3 -m venv venv
+source venv/activate
+
+# Install dependencies including dev tools
+pip install -r requirements-dev.txt
+```
+
+### Running Tests
+
+```bash
+# Run all tests
+pytest
+
+# Run with verbose output
+pytest -v
+
+# Run with coverage report
+pytest --cov=monitor --cov=storage --cov=service --cov-report=html
+
+# Run specific test file
+pytest tests/test_network.py -v
+```
+
+### Type Checking
+
+```bash
+# Run mypy for type checking
+mypy network_monitor.py
+```
+
+### Verification Checklist
+
+After making changes, verify:
+
+- Application starts without errors: `python network_monitor.py`
+- All display modes work (latency, speed, session, devices)
+- Device scanning works and shows vendors
+- Tests pass: `pytest`
 
 ## Troubleshooting
 

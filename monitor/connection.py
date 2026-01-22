@@ -5,6 +5,11 @@ from dataclasses import dataclass
 from typing import Optional, List
 import psutil
 
+from config import get_logger, INTERVALS
+from config.subprocess_cache import get_subprocess_cache
+
+logger = get_logger(__name__)
+
 
 @dataclass
 class ConnectionInfo:
@@ -22,11 +27,17 @@ class ConnectionDetector:
     def __init__(self):
         self._last_connection: Optional[ConnectionInfo] = None
         self._wifi_interface = self._find_wifi_interface()
+        self._subprocess_cache = get_subprocess_cache()
+        logger.debug(f"ConnectionDetector initialized, WiFi interface: {self._wifi_interface}")
     
     def _find_wifi_interface(self) -> str:
         """Find the WiFi interface name (usually en0 or en1)."""
         try:
-            result = subprocess.run(
+            result = self._subprocess_cache.run(
+                ['networksetup', '-listallhardwareports'],
+                ttl=60.0,  # Cache for 1 minute - hardware doesn't change often
+                timeout=INTERVALS.SUBPROCESS_TIMEOUT_SECONDS
+            ) if hasattr(self, '_subprocess_cache') else subprocess.run(
                 ['networksetup', '-listallhardwareports'],
                 capture_output=True,
                 text=True,
@@ -40,8 +51,8 @@ class ConnectionDetector:
                         match = re.search(r'Device:\s*(\w+)', lines[i + 1])
                         if match:
                             return match.group(1)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Error finding WiFi interface: {e}")
         return 'en0'  # Default fallback
     
     def _get_wifi_ssid(self) -> Optional[str]:

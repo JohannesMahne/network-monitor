@@ -18,6 +18,11 @@ from typing import Dict, List, Optional, Set, Tuple
 from datetime import datetime
 import threading
 
+from config import get_logger, INTERVALS, STORAGE, NETWORK
+from config.subprocess_cache import get_subprocess_cache, safe_run
+
+logger = get_logger(__name__)
+
 
 class DeviceType:
     """Device type classifications."""
@@ -268,7 +273,7 @@ class DeviceNameStore:
             with open(self._get_store_path(), 'w') as f:
                 json.dump(self._names, f, indent=2)
         except Exception as e:
-            print(f"Error saving device names: {e}")
+            logger.error(f"Error saving device names: {e}")
     
     def get_name(self, mac_address: str) -> Optional[str]:
         mac = mac_address.upper().replace('-', ':')
@@ -335,10 +340,10 @@ class OUIDatabase:
                                 self._vendors[prefix] = vendor
                     
                     self._loaded = True
-                    print(f"Loaded {len(self._vendors)} OUI entries from {path}")
+                    logger.info(f"Loaded {len(self._vendors)} OUI entries from {path}")
                     return
             except Exception as e:
-                print(f"Failed to load OUI from {path}: {e}")
+                logger.debug(f"Failed to load OUI from {path}: {e}")
         
         # Fallback: basic built-in database
         self._vendors = {
@@ -347,7 +352,7 @@ class OUIDatabase:
             "080027": "Oracle VirtualBox",
             "0050F2": "Microsoft",
         }
-        print("Using fallback OUI database")
+        logger.warning("Using fallback OUI database (install arp-scan for better vendor detection)")
         self._loaded = True
     
     def lookup(self, mac_address: str) -> Optional[str]:
@@ -480,19 +485,20 @@ class NetworkScanner:
         self._lock = threading.Lock()
         self._last_scan: float = 0
         self._last_mdns_scan: float = 0
-        self._scan_interval = 60
-        self._mdns_scan_interval = 120
+        self._scan_interval = INTERVALS.DEVICE_SCAN_SECONDS * 2  # Less frequent than UI update
+        self._mdns_scan_interval = INTERVALS.MDNS_SCAN_SECONDS
         self._own_mac_addresses: Set[str] = self._get_own_mac_addresses()
         self._name_store = DeviceNameStore()
         self._oui_db = OUIDatabase()
         self._mdns_names: Dict[str, str] = {}
+        self._subprocess_cache = get_subprocess_cache()
         
         # Check tool availability
         self._has_dns_sd = ToolChecker.has_dns_sd()
         self._has_nmap = ToolChecker.has_nmap()
         
-        print(f"Scanner: OUI entries={len(self._oui_db._vendors)}, "
-              f"dns-sd={self._has_dns_sd}, nmap={self._has_nmap}")
+        logger.info(f"Scanner initialized: OUI entries={len(self._oui_db._vendors)}, "
+                   f"dns-sd={self._has_dns_sd}, nmap={self._has_nmap}")
     
     def _get_own_mac_addresses(self) -> Set[str]:
         """Get MAC addresses of our own interfaces."""
@@ -533,11 +539,11 @@ class NetworkScanner:
         devices = []
         
         try:
-            result = subprocess.run(
+            # Use cached subprocess for ARP (changes slowly)
+            result = self._subprocess_cache.run(
                 ['arp', '-an'],
-                capture_output=True,
-                text=True,
-                timeout=5
+                ttl=10.0,  # Cache for 10 seconds
+                timeout=NETWORK.ARP_SCAN_TIMEOUT
             )
             
             if result.returncode == 0:
@@ -567,7 +573,7 @@ class NetworkScanner:
                         devices.append((ip, mac, vendor))
         
         except Exception as e:
-            print(f"ARP scan error: {e}")
+            logger.error(f"ARP scan error: {e}", exc_info=True)
         
         return devices
     
@@ -650,8 +656,9 @@ class NetworkScanner:
     # Hostname resolution
     # ========================================================================
     
-    def _resolve_hostname(self, ip: str, timeout: float = 1.0) -> Optional[str]:
+    def _resolve_hostname(self, ip: str, timeout: float = None) -> Optional[str]:
         """Try to resolve hostname for an IP address."""
+        timeout = timeout or NETWORK.HOSTNAME_RESOLVE_TIMEOUT
         try:
             socket.setdefaulttimeout(timeout)
             hostname, _, _ = socket.gethostbyaddr(ip)
@@ -804,7 +811,7 @@ class NetworkScanner:
                                     device.model_hint = model_hint
                                 break
         except Exception as e:
-            print(f"mDNS scan error: {e}")
+            logger.error(f"mDNS scan error: {e}", exc_info=True)
     
     # ========================================================================
     # Accessors

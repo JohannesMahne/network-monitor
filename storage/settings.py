@@ -6,6 +6,10 @@ from dataclasses import dataclass, asdict, field
 from enum import Enum
 import threading
 
+from config import get_logger, STORAGE, THRESHOLDS
+
+logger = get_logger(__name__)
+
 
 class BudgetPeriod(Enum):
     """Budget period options."""
@@ -78,7 +82,7 @@ class AppSettings:
 class SettingsManager:
     """Manages application settings and budgets."""
     
-    DEFAULT_SETTINGS_FILE = "settings.json"
+    DEFAULT_SETTINGS_FILE = STORAGE.SETTINGS_FILE
     
     def __init__(self, data_dir: Path):
         self.data_dir = data_dir
@@ -86,6 +90,7 @@ class SettingsManager:
         self._lock = threading.Lock()
         self._settings: AppSettings = AppSettings()
         self._load()
+        logger.debug(f"SettingsManager initialized at {self.settings_file}")
     
     def _load(self) -> None:
         """Load settings from file."""
@@ -94,11 +99,13 @@ class SettingsManager:
                 with open(self.settings_file, 'r') as f:
                     data = json.load(f)
                     self._settings = AppSettings.from_dict(data)
+                logger.debug("Settings loaded successfully")
             except (json.JSONDecodeError, IOError) as e:
-                print(f"Warning: Could not load settings: {e}")
+                logger.warning(f"Could not load settings: {e}")
                 self._settings = AppSettings()
         else:
             self._settings = AppSettings()
+            logger.debug("No existing settings file, using defaults")
     
     def _save(self) -> None:
         """Save settings to file."""
@@ -106,8 +113,9 @@ class SettingsManager:
             self.data_dir.mkdir(parents=True, exist_ok=True)
             with open(self.settings_file, 'w') as f:
                 json.dump(self._settings.to_dict(), f, indent=2)
+            logger.debug("Settings saved successfully")
         except IOError as e:
-            print(f"Error saving settings: {e}")
+            logger.error(f"Error saving settings: {e}")
     
     # === Title Display ===
     
@@ -210,5 +218,5 @@ class SettingsManager:
 def get_settings_manager(data_dir: Optional[Path] = None) -> SettingsManager:
     """Get or create settings manager singleton."""
     if data_dir is None:
-        data_dir = Path.home() / ".network-monitor"
+        data_dir = Path.home() / STORAGE.DATA_DIR_NAME
     return SettingsManager(data_dir)
