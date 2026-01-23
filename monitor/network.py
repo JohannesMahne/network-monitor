@@ -11,6 +11,7 @@ Example:
     >>> if current:
     ...     print(f"Download: {current.download_speed:.0f} B/s")
 """
+
 from __future__ import annotations
 
 import time
@@ -98,7 +99,7 @@ class NetworkStats:
         self._session_start_time = current_time
         self._initialized = True
         logger.debug("NetworkStats initialized")
-    
+
     def get_current_stats(self) -> Optional[SpeedStats]:
         """Get current network statistics including speed.
 
@@ -132,10 +133,8 @@ class NetworkStats:
         download_speed = bytes_recv_delta / time_delta
 
         # Update peak speeds
-        if upload_speed > self._peak_upload:
-            self._peak_upload = upload_speed
-        if download_speed > self._peak_download:
-            self._peak_download = download_speed
+        self._peak_upload = max(self._peak_upload, upload_speed)
+        self._peak_download = max(self._peak_download, download_speed)
 
         # Store for averaging
         self._speed_samples.append((upload_speed, download_speed))

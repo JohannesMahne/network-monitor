@@ -1,13 +1,12 @@
 """Tests for settings management."""
+
 import pytest
-import json
-from pathlib import Path
 
 from storage.settings import (
-    SettingsManager,
     AppSettings,
-    ConnectionBudget,
     BudgetPeriod,
+    ConnectionBudget,
+    SettingsManager,
     TitleDisplayMode,
 )
 
@@ -66,7 +65,7 @@ class TestConnectionBudget:
             "enabled": True,
             "limit_bytes": 5000000000,
             "period": "weekly",
-            "warn_at_percent": 90
+            "warn_at_percent": 90,
         }
         budget = ConnectionBudget.from_dict(data)
         assert budget.enabled is True
@@ -118,13 +117,10 @@ class TestSettingsManager:
     def test_set_and_get_budget(self, settings_manager):
         """Test setting and getting connection budget."""
         budget = ConnectionBudget(
-            enabled=True,
-            limit_bytes=10000000000,  # 10 GB
-            period="monthly",
-            warn_at_percent=80
+            enabled=True, limit_bytes=10000000000, period="monthly", warn_at_percent=80  # 10 GB
         )
         settings_manager.set_budget("WiFi:TestNetwork", budget)
-        
+
         retrieved = settings_manager.get_budget("WiFi:TestNetwork")
         assert retrieved is not None
         assert retrieved.enabled is True
@@ -140,17 +136,17 @@ class TestSettingsManager:
         budget = ConnectionBudget(enabled=True, limit_bytes=1000000)
         settings_manager.set_budget("WiFi:TestNetwork", budget)
         settings_manager.remove_budget("WiFi:TestNetwork")
-        
+
         assert settings_manager.get_budget("WiFi:TestNetwork") is None
 
     def test_get_all_budgets(self, settings_manager):
         """Test getting all budgets."""
         budget1 = ConnectionBudget(enabled=True, limit_bytes=1000000)
         budget2 = ConnectionBudget(enabled=True, limit_bytes=2000000)
-        
+
         settings_manager.set_budget("WiFi:Network1", budget1)
         settings_manager.set_budget("WiFi:Network2", budget2)
-        
+
         all_budgets = settings_manager.get_all_budgets()
         assert len(all_budgets) == 2
 
@@ -164,13 +160,11 @@ class TestSettingsManager:
         """Test budget status when under limit."""
         budget = ConnectionBudget(enabled=True, limit_bytes=1000000000)
         settings_manager.set_budget("WiFi:TestNetwork", budget)
-        
+
         status = settings_manager.check_budget_status(
-            "WiFi:TestNetwork",
-            current_usage=100000000,
-            period_usage=500000000  # 50% of limit
+            "WiFi:TestNetwork", current_usage=100000000, period_usage=500000000  # 50% of limit
         )
-        
+
         assert status["has_budget"] is True
         assert status["exceeded"] is False
         assert status["warning"] is False
@@ -180,13 +174,11 @@ class TestSettingsManager:
         """Test budget status when at warning threshold."""
         budget = ConnectionBudget(enabled=True, limit_bytes=1000000000, warn_at_percent=80)
         settings_manager.set_budget("WiFi:TestNetwork", budget)
-        
+
         status = settings_manager.check_budget_status(
-            "WiFi:TestNetwork",
-            current_usage=0,
-            period_usage=850000000  # 85% of limit
+            "WiFi:TestNetwork", current_usage=0, period_usage=850000000  # 85% of limit
         )
-        
+
         assert status["warning"] is True
         assert status["exceeded"] is False
 
@@ -194,13 +186,11 @@ class TestSettingsManager:
         """Test budget status when exceeded."""
         budget = ConnectionBudget(enabled=True, limit_bytes=1000000000)
         settings_manager.set_budget("WiFi:TestNetwork", budget)
-        
+
         status = settings_manager.check_budget_status(
-            "WiFi:TestNetwork",
-            current_usage=0,
-            period_usage=1500000000  # 150% of limit
+            "WiFi:TestNetwork", current_usage=0, period_usage=1500000000  # 150% of limit
         )
-        
+
         assert status["exceeded"] is True
         assert status["percent_used"] == 100  # Capped at 100
 
@@ -208,7 +198,7 @@ class TestSettingsManager:
         """Test that settings persist across instances."""
         manager1 = SettingsManager(data_dir=temp_data_dir)
         manager1.set_title_display("devices")
-        
+
         manager2 = SettingsManager(data_dir=temp_data_dir)
         assert manager2.get_title_display() == "devices"
 
@@ -217,7 +207,7 @@ class TestSettingsManager:
         manager1 = SettingsManager(data_dir=temp_data_dir)
         budget = ConnectionBudget(enabled=True, limit_bytes=5000000000)
         manager1.set_budget("WiFi:TestNetwork", budget)
-        
+
         manager2 = SettingsManager(data_dir=temp_data_dir)
         retrieved = manager2.get_budget("WiFi:TestNetwork")
         assert retrieved is not None

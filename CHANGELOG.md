@@ -7,8 +7,61 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.7.1] - 2026-01-23
+
 ### Changed
+- WiFi signal strength indicator now uses diamond prefix (◆●●●) for consistent visual style
+
+## [1.7.0] - 2026-01-23
+
+### Added
+- BandwidthMonitor for per-app bandwidth throttling detection and alerts
+- DNSMonitor for DNS performance monitoring and slow DNS alerts
+- GeolocationService for IP country lookups with caching
+- ConnectionTracker for tracking external connections per app
+- Comprehensive test suites for all new monitoring components
+- New constants: DNS_CHECK_INTERVAL, DNS_SLOW_THRESHOLD_MS in NetworkConfig
+
+### Changed
+- AppDependencies now includes bandwidth_monitor, dns_monitor, geolocation_service, and connection_tracker
+- Improved test coverage for new modules (97%, 100%, 94%, 93% respectively)
+- Updated test fixtures to include new dependency fields
+
+### Fixed
+- Test failures due to missing dependency fields in AppDependencies constructor
+
+## [1.6.0] - 2026-01-22
+
+### Added
+- Python 3.13 compatibility improvements
+
+### Changed
+- Minor code quality improvements
+
+## [1.5.0] - 2026-01-22
+
+### Added
+- AppController for business logic orchestration with dependency injection
+- EventBus for decoupled component communication (pub/sub pattern)
+- MenuAwareTimer extracted to `app/timer.py` for better modularity
+- SingletonLock extracted to `config/singleton.py` for reusability
+- Comprehensive test fixtures in `tests/conftest.py` for common mocking patterns
+- Integration test suite with pytest markers (unit, integration, slow)
+- New tests for ConnectionDetector, MenuBuilder, NetworkScanner, and dependencies
+- GitHub Actions CI now fails on coverage regression below 65%
+
+### Changed
+- Wired AppController into main NetworkMonitorApp for cleaner architecture
+- Test coverage improved from 65% to 69%
+- `menu_builder.py` coverage: 30% → 92%
+- `dependencies.py` coverage: 41% → 96%
+- `connection.py` coverage: 49% → 69%
+- `network.py` coverage: 59% → 94%
+- Added pytest warning filters for matplotlib deprecation warnings
 - Improved documentation and consistency (British English, clarified install/dev instructions)
+
+### Fixed
+- Event subscription pattern now properly connects controller events to UI updates
 
 ## [1.4.0] - 2026-01-15
 

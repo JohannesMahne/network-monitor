@@ -17,4 +17,4 @@ fi
 
 # Run the application
 echo "Starting Network Monitor..."
-python network_monitor.py
+python3 network_monitor.py

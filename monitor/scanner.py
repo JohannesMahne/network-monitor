@@ -7,25 +7,30 @@ Uses multiple sources for device identification:
 4. ARP table fallback (built-in, no extra tools needed)
 5. Custom device names (user-assigned, persisted)
 """
-import subprocess
+
+import json
 import re
 import socket
-import time
-import json
-from pathlib import Path
-from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Set, Tuple
-from datetime import datetime
+import subprocess
 import threading
+import time
+from dataclasses import dataclass, field
+from datetime import datetime
+from pathlib import Path
+from typing import Dict, List, Optional, Set, Tuple
 
-from config import get_logger, INTERVALS, STORAGE, NETWORK
-from config.subprocess_cache import get_subprocess_cache, safe_run
+from config import INTERVALS, NETWORK, get_logger
+from config.subprocess_cache import get_subprocess_cache
 
 logger = get_logger(__name__)
 
 
-class DeviceType:
+from enum import Enum
+
+
+class DeviceType(str, Enum):
     """Device type classifications."""
+
     UNKNOWN = "unknown"
     DESKTOP = "desktop"
     LAPTOP = "laptop"
@@ -39,33 +44,40 @@ class DeviceType:
     CAMERA = "camera"
     GAMING = "gaming"
     WATCH = "watch"
-    
-    # Icons for each type
-    ICONS = {
-        UNKNOWN: "❓",
-        DESKTOP: "🖥️",
-        LAPTOP: "💻",
-        PHONE: "📱",
-        TABLET: "📱",
-        TV: "📺",
-        SPEAKER: "🔊",
-        IOT: "🔌",
-        ROUTER: "📡",
-        PRINTER: "🖨️",
-        CAMERA: "📷",
-        GAMING: "🎮",
-        WATCH: "⌚",
-    }
+
+    @property
+    def icon(self) -> str:
+        """Get icon for this device type."""
+        return DEVICE_TYPE_ICONS.get(self, "❓")
+
+
+# Icons for each device type (defined outside enum to avoid becoming enum members)
+DEVICE_TYPE_ICONS = {
+    DeviceType.UNKNOWN: "❓",
+    DeviceType.DESKTOP: "🖥️",
+    DeviceType.LAPTOP: "💻",
+    DeviceType.PHONE: "📱",
+    DeviceType.TABLET: "📱",
+    DeviceType.TV: "📺",
+    DeviceType.SPEAKER: "🔊",
+    DeviceType.IOT: "🔌",
+    DeviceType.ROUTER: "📡",
+    DeviceType.PRINTER: "🖨️",
+    DeviceType.CAMERA: "📷",
+    DeviceType.GAMING: "🎮",
+    DeviceType.WATCH: "⌚",
+}
 
 
 @dataclass
 class NetworkDevice:
     """Represents a device on the network."""
+
     ip_address: str
     mac_address: str
     hostname: Optional[str] = None
     vendor: Optional[str] = None
-    device_type: str = DeviceType.UNKNOWN
+    device_type: DeviceType = DeviceType.UNKNOWN
     os_hint: Optional[str] = None
     model_hint: Optional[str] = None
     custom_name: Optional[str] = None
@@ -74,24 +86,24 @@ class NetworkDevice:
     first_seen: datetime = field(default_factory=datetime.now)
     last_seen: datetime = field(default_factory=datetime.now)
     is_online: bool = True
-    
+
     def __hash__(self):
         return hash(self.mac_address)
-    
+
     def __eq__(self, other):
         if isinstance(other, NetworkDevice):
             return self.mac_address == other.mac_address
         return False
-    
+
     @property
     def type_icon(self) -> str:
         """Get icon for device type."""
-        return DeviceType.ICONS.get(self.device_type, "❓")
-    
+        return self.device_type.icon
+
     @property
     def display_name(self) -> str:
         """Get best display name for the device.
-        
+
         Priority: Custom > mDNS > Model > Hostname > Vendor > IP
         """
         if self.custom_name:
@@ -101,7 +113,7 @@ class NetworkDevice:
         if self.model_hint:
             return self.model_hint
         if self.hostname and self.hostname != self.ip_address:
-            return self.hostname.split('.')[0]
+            return self.hostname.split(".")[0]
         if self.vendor:
             return f"{self.vendor}"
         return self.ip_address
@@ -124,7 +136,6 @@ VENDOR_TYPE_MAP = {
     "aruba": DeviceType.ROUTER,
     "mikrotik": DeviceType.ROUTER,
     "zyxel": DeviceType.ROUTER,
-    
     # IoT / Smart Home
     "espressif": DeviceType.IOT,
     "tuya": DeviceType.IOT,
@@ -140,7 +151,6 @@ VENDOR_TYPE_MAP = {
     "eufy": DeviceType.CAMERA,
     "arlo": DeviceType.CAMERA,
     "shanghai high-flying": DeviceType.IOT,  # WiFi modules
-    
     # Phones (default for these brands)
     "samsung": DeviceType.PHONE,
     "oneplus": DeviceType.PHONE,
@@ -148,7 +158,6 @@ VENDOR_TYPE_MAP = {
     "vivo": DeviceType.PHONE,
     "motorola": DeviceType.PHONE,
     "google": DeviceType.PHONE,
-    
     # TVs / Media
     "roku": DeviceType.TV,
     "lg electronics": DeviceType.TV,
@@ -156,18 +165,15 @@ VENDOR_TYPE_MAP = {
     "vizio": DeviceType.TV,
     "hisense": DeviceType.TV,
     "samsung electro": DeviceType.TV,
-    
     # Speakers
     "sonos": DeviceType.SPEAKER,
     "bose": DeviceType.SPEAKER,
     "harman": DeviceType.SPEAKER,
-    
     # Gaming
     "sony": DeviceType.GAMING,  # PlayStation
     "microsoft": DeviceType.GAMING,  # Xbox
     "nintendo": DeviceType.GAMING,
     "valve": DeviceType.GAMING,
-    
     # Printers
     "epson": DeviceType.PRINTER,
     "seiko epson": DeviceType.PRINTER,
@@ -176,7 +182,6 @@ VENDOR_TYPE_MAP = {
     "canon": DeviceType.PRINTER,
     "brother": DeviceType.PRINTER,
     "xerox": DeviceType.PRINTER,
-    
     # Computers
     "intel": DeviceType.DESKTOP,
     "dell": DeviceType.DESKTOP,
@@ -184,7 +189,6 @@ VENDOR_TYPE_MAP = {
     "asrock": DeviceType.DESKTOP,
     "gigabyte": DeviceType.DESKTOP,
     "amd": DeviceType.DESKTOP,
-    
     # Apple - special handling needed
     "apple": DeviceType.LAPTOP,  # Default, refined by hostname/services
 }
@@ -239,53 +243,54 @@ HOSTNAME_PATTERNS = [
 # Custom Device Names Storage
 # ============================================================================
 
+
 class DeviceNameStore:
     """Stores user-assigned custom names for devices."""
-    
+
     _instance = None
     _names: Dict[str, str] = {}
     _store_path: Optional[Path] = None
-    
+
     def __new__(cls):
         if cls._instance is None:
             cls._instance = super().__new__(cls)
             cls._instance._load()
         return cls._instance
-    
+
     def _get_store_path(self) -> Path:
         if self._store_path is None:
             store_dir = Path.home() / ".network-monitor"
             store_dir.mkdir(exist_ok=True)
             self._store_path = store_dir / "device_names.json"
         return self._store_path
-    
+
     def _load(self) -> None:
         try:
             path = self._get_store_path()
             if path.exists():
-                with open(path, 'r') as f:
+                with open(path) as f:
                     self._names = json.load(f)
         except Exception:
             self._names = {}
-    
+
     def _save(self) -> None:
         try:
-            with open(self._get_store_path(), 'w') as f:
+            with open(self._get_store_path(), "w") as f:
                 json.dump(self._names, f, indent=2)
         except Exception as e:
             logger.error(f"Error saving device names: {e}")
-    
+
     def get_name(self, mac_address: str) -> Optional[str]:
-        mac = mac_address.upper().replace('-', ':')
+        mac = mac_address.upper().replace("-", ":")
         return self._names.get(mac)
-    
+
     def set_name(self, mac_address: str, name: str) -> None:
-        mac = mac_address.upper().replace('-', ':')
+        mac = mac_address.upper().replace("-", ":")
         self._names[mac] = name
         self._save()
-    
+
     def remove_name(self, mac_address: str) -> None:
-        mac = mac_address.upper().replace('-', ':')
+        mac = mac_address.upper().replace("-", ":")
         if mac in self._names:
             del self._names[mac]
             self._save()
@@ -295,17 +300,18 @@ class DeviceNameStore:
 # OUI Vendor Database
 # ============================================================================
 
+
 class OUIDatabase:
     """IEEE OUI database for MAC vendor lookup.
-    
+
     Uses the database from arp-scan if available, otherwise falls back
     to a built-in subset.
     """
-    
+
     _instance = None
     _vendors: Dict[str, str] = {}
     _loaded = False
-    
+
     # Possible paths for OUI database (version-agnostic)
     OUI_PATHS = [
         "/opt/homebrew/share/arp-scan/ieee-oui.txt",
@@ -324,41 +330,41 @@ class OUIDatabase:
                 if oui_path.exists():
                     return [str(oui_path)]
         return []
-    
+
     def __new__(cls):
         if cls._instance is None:
             cls._instance = super().__new__(cls)
             cls._instance._load()
         return cls._instance
-    
+
     def _load(self) -> None:
         """Load OUI database from file."""
         if self._loaded:
             return
-        
+
         # Combine static paths with dynamic Cellar search
         all_paths = self.OUI_PATHS + self._find_cellar_oui()
-        
+
         for path in all_paths:
             try:
                 if Path(path).exists():
-                    with open(path, 'r', encoding='utf-8', errors='ignore') as f:
+                    with open(path, encoding="utf-8", errors="ignore") as f:
                         for line in f:
                             line = line.strip()
-                            if not line or line.startswith('#'):
+                            if not line or line.startswith("#"):
                                 continue
-                            parts = line.split('\t', 1)
+                            parts = line.split("\t", 1)
                             if len(parts) == 2:
-                                prefix = parts[0].upper().replace(':', '').replace('-', '')
+                                prefix = parts[0].upper().replace(":", "").replace("-", "")
                                 vendor = parts[1].strip()
                                 self._vendors[prefix] = vendor
-                    
+
                     self._loaded = True
                     logger.info(f"Loaded {len(self._vendors)} OUI entries from {path}")
                     return
             except Exception as e:
                 logger.debug(f"Failed to load OUI from {path}: {e}")
-        
+
         # Fallback: basic built-in database
         self._vendors = {
             "000C29": "VMware",
@@ -368,17 +374,17 @@ class OUIDatabase:
         }
         logger.warning("Using fallback OUI database (install arp-scan for better vendor detection)")
         self._loaded = True
-    
+
     def lookup(self, mac_address: str) -> Optional[str]:
         """Look up vendor from MAC address."""
-        mac_clean = mac_address.upper().replace(':', '').replace('-', '').replace('.', '')
-        
+        mac_clean = mac_address.upper().replace(":", "").replace("-", "").replace(".", "")
+
         # Try progressively shorter prefixes (6, 5, 4, 3 bytes)
         for length in [12, 10, 8, 6]:
             prefix = mac_clean[:length]
             if prefix in self._vendors:
                 return self._vendors[prefix]
-        
+
         return None
 
 
@@ -386,22 +392,23 @@ class OUIDatabase:
 # Tool Availability Check
 # ============================================================================
 
+
 class ToolChecker:
     """Check availability of network scanning tools.
-    
+
     Results are cached indefinitely since installed tools don't change during runtime.
     """
-    
+
     _cache: Dict[str, bool] = {}
     _subprocess_cache = None
-    
+
     @classmethod
     def _get_subprocess_cache(cls):
         """Get subprocess cache lazily."""
         if cls._subprocess_cache is None:
             cls._subprocess_cache = get_subprocess_cache()
         return cls._subprocess_cache
-    
+
     @classmethod
     def _check_tool(cls, tool_name: str) -> bool:
         """Check if a tool is available using cached subprocess."""
@@ -409,43 +416,45 @@ class ToolChecker:
             try:
                 # Tool availability is static - cache for a very long time
                 result = cls._get_subprocess_cache().run(
-                    ['which', tool_name],
-                    ttl=3600.0,  # Cache for 1 hour
-                    timeout=2.0
+                    ["which", tool_name], ttl=3600.0, timeout=2.0  # Cache for 1 hour
                 )
                 cls._cache[tool_name] = result.returncode == 0
             except Exception:
                 cls._cache[tool_name] = False
         return cls._cache[tool_name]
-    
+
     @classmethod
     def has_arp_scan(cls) -> bool:
-        return cls._check_tool('arp-scan')
-    
+        return cls._check_tool("arp-scan")
+
     @classmethod
     def has_nmap(cls) -> bool:
-        return cls._check_tool('nmap')
-    
+        return cls._check_tool("nmap")
+
     @classmethod
     def has_dns_sd(cls) -> bool:
-        return cls._check_tool('dns-sd')
+        return cls._check_tool("dns-sd")
 
 
 # ============================================================================
 # Device Type Inference
 # ============================================================================
 
-def infer_device_type(vendor: Optional[str], hostname: Optional[str],
-                      services: List[str] = None, mdns_name: Optional[str] = None
-                      ) -> Tuple[str, Optional[str], Optional[str]]:
+
+def infer_device_type(
+    vendor: Optional[str],
+    hostname: Optional[str],
+    services: List[str] = None,
+    mdns_name: Optional[str] = None,
+) -> Tuple[DeviceType, Optional[str], Optional[str]]:
     """Infer device type, OS, and model from available information.
-    
+
     Returns: (device_type, os_hint, model_hint)
     """
-    device_type = DeviceType.UNKNOWN
+    device_type: DeviceType = DeviceType.UNKNOWN
     os_hint = None
     model_hint = None
-    
+
     # Check hostname patterns first (most specific)
     for pattern, dtype, os_h, model_h in HOSTNAME_PATTERNS:
         check_strings = [s for s in [hostname, mdns_name] if s]
@@ -457,14 +466,14 @@ def infer_device_type(vendor: Optional[str], hostname: Optional[str],
                 break
         if device_type != DeviceType.UNKNOWN:
             break
-    
+
     # Check services (mDNS)
     if services and device_type == DeviceType.UNKNOWN:
         for service in services:
             if service in SERVICE_TYPE_MAP:
                 device_type = SERVICE_TYPE_MAP[service]
                 break
-    
+
     # Check vendor
     if device_type == DeviceType.UNKNOWN and vendor:
         vendor_lower = vendor.lower()
@@ -472,7 +481,7 @@ def infer_device_type(vendor: Optional[str], hostname: Optional[str],
             if vendor_key in vendor_lower:
                 device_type = dtype
                 break
-    
+
     return device_type, os_hint, model_hint
 
 
@@ -489,9 +498,10 @@ def normalize_mac(mac_address: str) -> str:
 # Network Scanner
 # ============================================================================
 
+
 class NetworkScanner:
     """Scans the local network for connected devices.
-    
+
     Uses:
     1. ARP table - Device discovery (built-in, no privileges needed)
     2. IEEE OUI database - Vendor lookup from MAC address
@@ -499,8 +509,8 @@ class NetworkScanner:
     4. Hostname resolution - DNS names
     5. Custom names - User-assigned, persisted
     """
-    
-    def __init__(self):
+
+    def __init__(self, event_bus=None):
         self._devices: Dict[str, NetworkDevice] = {}
         self._lock = threading.Lock()
         self._last_scan: float = 0
@@ -512,34 +522,39 @@ class NetworkScanner:
         self._oui_db = OUIDatabase()
         self._mdns_names: Dict[str, str] = {}
         self._subprocess_cache = get_subprocess_cache()
-        
+        self._event_bus = event_bus  # Optional event bus for publishing events
+        self._previously_online_devices: Set[str] = set()  # Track devices that were online
+
         # Lazy hostname resolution
         self._pending_hostname_resolution: Set[str] = set()  # MACs pending resolution
         self._hostname_resolution_in_progress: bool = False
         self._hostname_resolve_lock = threading.Lock()
-        
+
         # Check tool availability
         self._has_dns_sd = ToolChecker.has_dns_sd()
         self._has_nmap = ToolChecker.has_nmap()
-        
-        logger.info(f"Scanner initialized: OUI entries={len(self._oui_db._vendors)}, "
-                   f"dns-sd={self._has_dns_sd}, nmap={self._has_nmap}")
-    
+
+        logger.info(
+            f"Scanner initialized: OUI entries={len(self._oui_db._vendors)}, "
+            f"dns-sd={self._has_dns_sd}, nmap={self._has_nmap}"
+        )
+
     def _get_own_mac_addresses(self) -> Set[str]:
         """Get MAC addresses of our own interfaces."""
         own_macs = set()
         try:
             import psutil
+
             for iface, addrs in psutil.net_if_addrs().items():
                 for addr in addrs:
-                    if addr.family.name == 'AF_LINK':
+                    if addr.family.name == "AF_LINK":
                         mac = normalize_mac(addr.address)
                         if mac and mac != "00:00:00:00:00:00":
                             own_macs.add(mac)
         except Exception:
             pass  # nosec B110 - Best effort MAC detection
         return own_macs
-    
+
     def set_device_name(self, mac_address: str, name: str) -> None:
         """Set a custom name for a device."""
         self._name_store.set_name(mac_address, name)
@@ -547,75 +562,73 @@ class NetworkScanner:
         with self._lock:
             if mac in self._devices:
                 self._devices[mac].custom_name = name
-    
+
     def get_device_name(self, mac_address: str) -> Optional[str]:
         """Get custom name for a device."""
         return self._name_store.get_name(mac_address)
-    
+
     # ========================================================================
     # ARP Table Scan with OUI Lookup
     # ========================================================================
-    
+
     def _run_arp_with_oui(self) -> List[Tuple[str, str, str]]:
         """Scan ARP table and look up vendors from OUI database.
-        
+
         Returns list of (ip, mac, vendor).
         """
         devices = []
-        
+
         try:
             # Use cached subprocess for ARP (changes slowly)
             result = self._subprocess_cache.run(
-                ['arp', '-an'],
-                ttl=10.0,  # Cache for 10 seconds
-                timeout=NETWORK.ARP_SCAN_TIMEOUT
+                ["arp", "-an"], ttl=10.0, timeout=NETWORK.ARP_SCAN_TIMEOUT  # Cache for 10 seconds
             )
-            
+
             if result.returncode == 0:
                 # Parse: ? (192.168.1.1) at 00:11:22:33:44:55 on en0 ...
-                pattern = r'\((\d+\.\d+\.\d+\.\d+)\)\s+at\s+([0-9a-fA-F:]+)'
-                
-                for line in result.stdout.split('\n'):
+                pattern = r"\((\d+\.\d+\.\d+\.\d+)\)\s+at\s+([0-9a-fA-F:]+)"
+
+                for line in result.stdout.split("\n"):
                     match = re.search(pattern, line)
                     if match:
                         ip = match.group(1)
                         mac = normalize_mac(match.group(2))
-                        
+
                         # Skip invalid
                         if mac == "(INCOMPLETE)" or mac == "FF:FF:FF:FF:FF:FF":
                             continue
                         if mac in self._own_mac_addresses:
                             continue
-                        
+
                         # Skip multicast/broadcast
-                        first_octet = int(ip.split('.')[0])
-                        if 224 <= first_octet <= 239 or ip.endswith('.255'):
+                        first_octet = int(ip.split(".")[0])
+                        if 224 <= first_octet <= 239 or ip.endswith(".255"):
                             continue
-                        
+
                         # Look up vendor from OUI database
                         vendor = self._oui_db.lookup(mac)
-                        
+
                         devices.append((ip, mac, vendor))
-        
+
         except Exception as e:
             logger.error(f"ARP scan error: {e}", exc_info=True)
-        
+
         return devices
-    
+
     # ========================================================================
     # dns-sd / mDNS / Bonjour
     # ========================================================================
-    
+
     def _run_mdns_discovery(self) -> Dict[str, Tuple[str, List[str]]]:
         """Run mDNS service discovery.
-        
+
         Returns: {hostname: (mdns_name, [services])}
         """
         discovered = {}
-        
+
         if not self._has_dns_sd:
             return discovered
-        
+
         # Services to discover
         services_to_check = [
             "_airplay._tcp",
@@ -627,44 +640,44 @@ class NetworkScanner:
             "_smb._tcp",
             "_companion-link._tcp",
         ]
-        
+
         for service_type in services_to_check:
             try:
                 # Run dns-sd with a short timeout via background process
                 proc = subprocess.Popen(
-                    ['dns-sd', '-B', service_type, 'local.'],
+                    ["dns-sd", "-B", service_type, "local."],
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
-                    text=True
+                    text=True,
                 )
-                
+
                 # Wait briefly and kill
                 time.sleep(0.5)
                 proc.terminate()
-                
+
                 try:
                     stdout, _ = proc.communicate(timeout=1)
                 except subprocess.TimeoutExpired:
                     proc.kill()
                     stdout, _ = proc.communicate()
-                
+
                 # Parse output
-                for line in stdout.split('\n'):
-                    if 'Add' in line and 'local.' in line:
+                for line in stdout.split("\n"):
+                    if "Add" in line and "local." in line:
                         # Extract instance name (last column)
                         parts = line.split()
                         if len(parts) >= 7:
-                            instance_name = ' '.join(parts[6:])
-                            if instance_name and instance_name != '...STARTING...':
+                            instance_name = " ".join(parts[6:])
+                            if instance_name and instance_name != "...STARTING...":
                                 if instance_name not in discovered:
                                     discovered[instance_name] = (instance_name, [])
                                 discovered[instance_name][1].append(service_type)
-            
+
             except Exception:
                 pass  # nosec B110 - mDNS discovery is best-effort
-        
+
         return discovered
-    
+
     def _resolve_mdns_to_ip(self, mdns_name: str) -> Optional[str]:
         """Resolve mDNS name to IP address."""
         try:
@@ -675,12 +688,11 @@ class NetworkScanner:
         except Exception:
             pass  # nosec B110 - DNS resolution is best-effort
         return None
-    
-    
+
     # ========================================================================
     # Hostname resolution
     # ========================================================================
-    
+
     def _resolve_hostname(self, ip: str, timeout: float = None) -> Optional[str]:
         """Try to resolve hostname for an IP address."""
         timeout = timeout or NETWORK.HOSTNAME_RESOLVE_TIMEOUT
@@ -692,31 +704,30 @@ class NetworkScanner:
             return None
         finally:
             socket.setdefaulttimeout(None)
-    
+
     def resolve_missing_hostnames(self) -> None:
         """Resolve hostnames for devices that don't have one yet.
-        
+
         This is a batch operation - prefer using request_hostname_resolution()
         for lazy/on-demand resolution.
         """
         with self._lock:
             devices_to_resolve = [
-                d for d in self._devices.values()
-                if d.is_online and d.hostname is None
+                d for d in self._devices.values() if d.is_online and d.hostname is None
             ]
-        
+
         for device in devices_to_resolve:
             hostname = self._resolve_hostname(device.ip_address, timeout=2.0)
             if hostname:
                 self._apply_hostname_to_device(device.mac_address, hostname)
-    
+
     def _apply_hostname_to_device(self, mac_address: str, hostname: str) -> None:
         """Apply resolved hostname to a device and update type inference."""
         with self._lock:
             if mac_address in self._devices:
                 dev = self._devices[mac_address]
                 dev.hostname = hostname
-                
+
                 # Re-infer device type with hostname
                 device_type, os_hint, model_hint = infer_device_type(
                     dev.vendor, hostname, dev.services, dev.mdns_name
@@ -727,16 +738,16 @@ class NetworkScanner:
                     dev.os_hint = os_hint
                 if model_hint:
                     dev.model_hint = model_hint
-    
+
     def request_hostname_resolution(self, mac_address: str) -> None:
         """Request lazy hostname resolution for a specific device.
-        
+
         This is non-blocking - the hostname will be resolved in the background
         and the device will be updated when complete. Use this when you need
         a device's hostname but don't want to block the UI.
         """
         mac = normalize_mac(mac_address)
-        
+
         with self._lock:
             # Check if device exists and needs resolution
             if mac not in self._devices:
@@ -744,22 +755,19 @@ class NetworkScanner:
             device = self._devices[mac]
             if device.hostname is not None:
                 return  # Already resolved
-        
+
         # Add to pending queue
         with self._hostname_resolve_lock:
             self._pending_hostname_resolution.add(mac)
-            
+
             # Start background resolution if not already running
             if not self._hostname_resolution_in_progress:
                 self._hostname_resolution_in_progress = True
-                threading.Thread(
-                    target=self._process_hostname_queue,
-                    daemon=True
-                ).start()
-    
+                threading.Thread(target=self._process_hostname_queue, daemon=True).start()
+
     def _process_hostname_queue(self) -> None:
         """Process pending hostname resolution requests in the background.
-        
+
         This is lazy resolution - devices are resolved one at a time with
         a small delay to avoid overwhelming DNS.
         """
@@ -771,7 +779,7 @@ class NetworkScanner:
                         self._hostname_resolution_in_progress = False
                         return
                     mac = self._pending_hostname_resolution.pop()
-                
+
                 # Get device IP
                 with self._lock:
                     if mac not in self._devices:
@@ -780,65 +788,65 @@ class NetworkScanner:
                     if device.hostname is not None:
                         continue  # Already resolved
                     ip = device.ip_address
-                
+
                 # Resolve hostname (blocking but in background thread)
                 hostname = self._resolve_hostname(ip, timeout=2.0)
                 if hostname:
                     self._apply_hostname_to_device(mac, hostname)
                     logger.debug(f"Lazy resolved {ip} -> {hostname}")
-                
+
                 # Small delay between resolutions to be nice to DNS
                 time.sleep(0.1)
-        
+
         except Exception as e:
             logger.error(f"Hostname resolution queue error: {e}", exc_info=True)
             with self._hostname_resolve_lock:
                 self._hostname_resolution_in_progress = False
-    
+
     def request_resolution_for_visible(self, macs: List[str]) -> None:
         """Request hostname resolution for a list of visible devices.
-        
+
         Use this when displaying a list of devices - it will prioritize
         resolving hostnames for the visible devices first.
         """
         for mac in macs:
             self.request_hostname_resolution(mac)
-    
+
     # ========================================================================
     # Main scan
     # ========================================================================
-    
+
     def scan(self, force: bool = False, quick: bool = False) -> List[NetworkDevice]:
         """Scan the network for devices.
-        
+
         Args:
             force: Force scan even if interval hasn't elapsed
             quick: Skip slow operations (mDNS, hostname resolution)
-        
+
         Optimization: Only triggers mDNS/hostname resolution when new devices
         are detected, not on every scan interval.
         """
         current_time = time.time()
-        
+
         if not force and (current_time - self._last_scan) < self._scan_interval:
             with self._lock:
                 return list(self._devices.values())
-        
+
         self._last_scan = current_time
         discovered = []
         new_devices_found = False
-        
+
         # Scan ARP table with OUI vendor lookup
         arp_results = self._run_arp_with_oui()
-        
+
         with self._lock:
             seen_macs = set()
-            
+
             for ip, mac, vendor in arp_results:
                 seen_macs.add(mac)
                 custom_name = self._name_store.get_name(mac)
                 mdns_name = self._mdns_names.get(mac)
-                
+
                 if mac in self._devices:
                     # Update existing device
                     device = self._devices[mac]
@@ -854,11 +862,11 @@ class NetworkScanner:
                 else:
                     # New device detected!
                     new_devices_found = True
-                    
+
                     device_type, os_hint, model_hint = infer_device_type(
                         vendor, None, [], mdns_name
                     )
-                    
+
                     device = NetworkDevice(
                         ip_address=ip,
                         mac_address=mac,
@@ -870,31 +878,65 @@ class NetworkScanner:
                         mdns_name=mdns_name,
                         first_seen=datetime.now(),
                         last_seen=datetime.now(),
-                        is_online=True
+                        is_online=True,
                     )
                     self._devices[mac] = device
-                
+
+                    # Publish event for newly discovered device
+                    if self._event_bus:
+                        from app.events import EventType
+
+                        self._event_bus.publish(
+                            EventType.DEVICE_NEWLY_ONLINE,
+                            {
+                                "mac": mac,
+                                "ip": ip,
+                                "name": device.display_name,
+                                "vendor": vendor,
+                            },
+                        )
+
                 discovered.append(self._devices[mac])
-            
+
+                # Track newly online devices (was offline, now online)
+                if mac not in self._previously_online_devices and mac in self._devices:
+                    if self._devices[mac].is_online:
+                        # Device just came online
+                        if self._event_bus:
+                            from app.events import EventType
+
+                            self._event_bus.publish(
+                                EventType.DEVICE_NEWLY_ONLINE,
+                                {
+                                    "mac": mac,
+                                    "ip": self._devices[mac].ip_address,
+                                    "name": self._devices[mac].display_name,
+                                },
+                            )
+                        self._previously_online_devices.add(mac)
+
             # Mark unseen devices as offline
             for mac, device in self._devices.items():
                 if mac not in seen_macs:
+                    was_online = device.is_online
                     device.is_online = False
-        
+                    if was_online and mac in self._previously_online_devices:
+                        self._previously_online_devices.discard(mac)
+
         # Only run expensive discovery when new devices are found (or forced)
         if not quick and (new_devices_found or force):
             # Run mDNS discovery in background
             threading.Thread(target=self._background_mdns_scan, daemon=True).start()
             # Resolve hostnames for new devices
             threading.Thread(target=self.resolve_missing_hostnames, daemon=True).start()
-        
+
         return discovered
-    
+
     def _background_mdns_scan(self) -> None:
         """Run mDNS discovery in background and update devices."""
         try:
             mdns_results = self._run_mdns_discovery()
-            
+
             # Try to match mDNS names to devices by resolving to IP
             for mdns_name, (display_name, services) in mdns_results.items():
                 ip = self._resolve_mdns_to_ip(mdns_name)
@@ -906,11 +948,10 @@ class NetworkScanner:
                                 device.mdns_name = display_name
                                 device.services = list(set(device.services + services))
                                 self._mdns_names[device.mac_address] = display_name
-                                
+
                                 # Re-infer device type with services
                                 device_type, os_hint, model_hint = infer_device_type(
-                                    device.vendor, device.hostname, 
-                                    device.services, display_name
+                                    device.vendor, device.hostname, device.services, display_name
                                 )
                                 if device_type != DeviceType.UNKNOWN:
                                     device.device_type = device_type
@@ -921,28 +962,28 @@ class NetworkScanner:
                                 break
         except Exception as e:
             logger.error(f"mDNS scan error: {e}", exc_info=True)
-    
+
     # ========================================================================
     # Accessors
     # ========================================================================
-    
+
     def get_all_devices(self) -> List[NetworkDevice]:
         """Get all known devices."""
         with self._lock:
             return list(self._devices.values())
-    
+
     def get_online_devices(self) -> List[NetworkDevice]:
         """Get only online devices."""
         with self._lock:
             return [d for d in self._devices.values() if d.is_online]
-    
+
     def get_device_count(self) -> Tuple[int, int]:
         """Get (online_count, total_count) of devices."""
         with self._lock:
             total = len(self._devices)
             online = sum(1 for d in self._devices.values() if d.is_online)
             return online, total
-    
+
     def clear_devices(self) -> None:
         """Clear all known devices."""
         with self._lock:

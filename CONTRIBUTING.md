@@ -95,10 +95,17 @@ pre-commit run --all-files
 ```
 network-monitor/
 ├── app/                    # UI components (menu bar, views)
+│   ├── controller.py       # Business logic orchestration
+│   ├── dependencies.py     # Dependency injection container
+│   ├── events.py           # Event bus for pub/sub
 │   └── views/              # Menu builders and icons
 ├── config/                 # Configuration and constants
 ├── monitor/                # Core monitoring logic
+│   ├── bandwidth_monitor.py # Per-app bandwidth alerts
 │   ├── connection.py       # Network connection tracking
+│   ├── connection_tracker.py # External IP tracking
+│   ├── dns_monitor.py      # DNS performance monitoring
+│   ├── geolocation.py      # IP geolocation service
 │   ├── issues.py           # Issue detection
 │   ├── network.py          # Network interface utilities
 │   ├── scanner.py          # Device discovery
@@ -106,9 +113,9 @@ network-monitor/
 ├── service/                # System services
 │   └── launch_agent.py     # Launch at Login
 ├── storage/                # Data persistence
-│   ├── json_store.py       # JSON storage backend
+│   ├── json_store.py       # JSON storage backend (legacy)
 │   ├── settings.py         # User settings
-│   └── sqlite_store.py     # SQLite storage backend
+│   └── sqlite_store.py     # SQLite storage backend (default)
 ├── tests/                  # Test suite
 └── network_monitor.py      # Main entry point
 ```

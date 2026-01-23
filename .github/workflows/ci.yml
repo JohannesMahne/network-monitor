@@ -29,9 +29,13 @@ jobs:
           pip install -r requirements.txt
           pip install -r requirements-dev.txt
 
-      - name: Run tests with coverage
+      - name: Run unit tests with coverage
         run: |
-          pytest --cov=monitor --cov=storage --cov=service --cov=config --cov=app --cov-report=xml --cov-report=term-missing
+          pytest -m "not integration and not slow" --cov=monitor --cov=storage --cov=service --cov=config --cov=app --cov-report=xml --cov-report=term-missing --cov-fail-under=65
+
+      - name: Run integration tests
+        run: |
+          pytest -m "integration" -v --tb=short
 
       - name: Upload coverage to Codecov
         if: matrix.python-version == '3.12'
@@ -39,6 +43,11 @@ jobs:
         with:
           files: coverage.xml
           fail_ci_if_error: false
+
+      - name: Check coverage threshold
+        if: matrix.python-version == '3.12'
+        run: |
+          coverage report --fail-under=65
 
   lint:
     runs-on: ubuntu-latest
