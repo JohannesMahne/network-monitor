@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "network-monitor"
-version = "1.7.0"
+version = "1.7.1"
 description = "A macOS menu bar application for monitoring network traffic"
 readme = "README.md"
 license = {text = "MIT"}

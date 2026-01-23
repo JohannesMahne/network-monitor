@@ -2607,7 +2607,7 @@ class NetworkMonitorApp(rumps.App):
 
     def _show_about(self, _):
         """Show About dialog."""
-        about_text = """Network Monitor v1.7.0
+        about_text = """Network Monitor v1.7.1
 
 A lightweight macOS menu bar app for monitoring network activity.
 
