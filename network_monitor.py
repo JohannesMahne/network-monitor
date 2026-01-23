@@ -2225,7 +2225,7 @@ class NetworkMonitorApp(rumps.App):
             # Collect comprehensive data
             export_data = {
                 "export_timestamp": datetime.now().isoformat(),
-                "app_version": "1.2",
+                "app_version": "1.5.0",
                 "daily_usage": self.store.get_daily_totals(days=90),
                 "weekly_totals": self.store.get_weekly_totals(),
                 "monthly_totals": self.store.get_monthly_totals(),
@@ -2448,7 +2448,7 @@ class NetworkMonitorApp(rumps.App):
 
     def _show_about(self, _):
         """Show About dialog."""
-        about_text = """Network Monitor v1.3
+        about_text = """Network Monitor v1.5.0
 
 A lightweight macOS menu bar app for monitoring network activity.
 
@@ -2464,9 +2464,9 @@ Features:
 • SQLite database with backup/restore
 • Launch at login support
 
-v1.3: Added live sparkline graphs with
-persistence, unique colors per metric,
-and improved data budget tracking.
+v1.5.0: Improved architecture with event-driven
+updates, better test coverage (330 tests),
+and enhanced stability.
 
 Data is stored locally in:
 ~/.network-monitor/
