@@ -16,13 +16,12 @@ Usage:
 """
 import logging
 import sys
+from datetime import datetime
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Optional
-from datetime import datetime
 
 from config.constants import STORAGE
-
 
 # Module-level logger cache
 _loggers: dict = {}
@@ -32,7 +31,7 @@ _root_logger: Optional[logging.Logger] = None
 
 class NetworkMonitorFormatter(logging.Formatter):
     """Custom formatter with color support for console output."""
-    
+
     # ANSI color codes
     COLORS = {
         'DEBUG': '\033[36m',     # Cyan
@@ -42,14 +41,14 @@ class NetworkMonitorFormatter(logging.Formatter):
         'CRITICAL': '\033[35m',  # Magenta
         'RESET': '\033[0m',
     }
-    
+
     def __init__(self, use_colors: bool = True):
         self.use_colors = use_colors
         super().__init__(
             fmt='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
             datefmt='%Y-%m-%d %H:%M:%S'
         )
-    
+
     def format(self, record: logging.LogRecord) -> str:
         if self.use_colors and sys.stderr.isatty():
             color = self.COLORS.get(record.levelname, '')
@@ -84,20 +83,20 @@ def setup_logging(
         >>> logger.info("Application initialized")
     """
     global _initialized, _root_logger
-    
+
     if data_dir is None:
         data_dir = Path.home() / STORAGE.DATA_DIR_NAME
-    
+
     # Ensure data directory exists
     data_dir.mkdir(parents=True, exist_ok=True)
-    
+
     # Create or get root logger
     root_logger = logging.getLogger('netmon')
     root_logger.setLevel(logging.DEBUG if debug else logging.INFO)
-    
+
     # Clear existing handlers
     root_logger.handlers.clear()
-    
+
     # File handler with rotation
     if log_to_file:
         log_file = data_dir / STORAGE.LOG_FILE
@@ -113,23 +112,23 @@ def setup_logging(
             datefmt='%Y-%m-%d %H:%M:%S'
         ))
         root_logger.addHandler(file_handler)
-    
+
     # Console handler (stderr)
     if console_output:
         console_handler = logging.StreamHandler(sys.stderr)
         console_handler.setLevel(logging.DEBUG if debug else logging.WARNING)
         console_handler.setFormatter(NetworkMonitorFormatter(use_colors=True))
         root_logger.addHandler(console_handler)
-    
+
     # Log initialization
     root_logger.info(
         f"Logging initialized - level={'DEBUG' if debug else 'INFO'}, "
         f"file={log_to_file}, console={console_output}"
     )
-    
+
     _initialized = True
     _root_logger = root_logger
-    
+
     return root_logger
 
 
@@ -151,7 +150,7 @@ def get_logger(name: str) -> logging.Logger:
         >>> logger.error("Something failed", exc_info=True)
     """
     global _loggers
-    
+
     # Create short name for cleaner logs
     # e.g., "monitor.scanner" instead of full module path
     short_name = name
@@ -159,15 +158,15 @@ def get_logger(name: str) -> logging.Logger:
         parts = name.split('.')
         # Keep last 2 parts at most
         short_name = '.'.join(parts[-2:]) if len(parts) > 1 else parts[-1]
-    
+
     if short_name not in _loggers:
         if not _initialized:
             # Fallback: create a basic logger if setup wasn't called
             logging.basicConfig(level=logging.INFO)
-        
+
         logger = logging.getLogger(f'netmon.{short_name}')
         _loggers[short_name] = logger
-    
+
     return _loggers[short_name]
 
 
@@ -224,21 +223,21 @@ class LogContext:
         ...     scan_devices()
         # Logs: "Device scan completed in 1234ms"
     """
-    
+
     def __init__(self, logger: logging.Logger, operation: str, level: int = logging.DEBUG):
         self.logger = logger
         self.operation = operation
         self.level = level
         self.start_time: Optional[datetime] = None
-    
+
     def __enter__(self):
         self.start_time = datetime.now()
         self.logger.log(self.level, f"{self.operation} starting...")
         return self
-    
+
     def __exit__(self, exc_type, exc_val, exc_tb):
         duration = (datetime.now() - self.start_time).total_seconds() * 1000
-        
+
         if exc_type:
             self.logger.error(
                 f"{self.operation} failed after {duration:.0f}ms: {exc_val}"
@@ -248,5 +247,5 @@ class LogContext:
                 self.level,
                 f"{self.operation} completed in {duration:.0f}ms"
             )
-        
+
         return False  # Don't suppress exceptions

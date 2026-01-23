@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-from config import get_logger, STORAGE
+from config import STORAGE, get_logger
 
 logger = get_logger(__name__)
 
@@ -35,17 +35,17 @@ class AppDependencies:
     issue_detector: 'IssueDetector'
     network_scanner: 'NetworkScanner'
     traffic_monitor: 'TrafficMonitor'
-    
+
     # Storage components
     store: 'SQLiteStore'
     settings: 'SettingsManager'
-    
+
     # Service components
     launch_manager: 'LaunchAgentManager'
-    
+
     # Event bus (optional, can be shared)
     event_bus: Optional['EventBus'] = None
-    
+
     def __post_init__(self):
         """Log dependency creation."""
         logger.debug("AppDependencies container created")
@@ -72,40 +72,40 @@ def create_dependencies(
         >>> deps.network_stats.initialize()
     """
     # Import here to avoid circular imports
-    from monitor.network import NetworkStats
+    from app.events import get_event_bus
     from monitor.connection import ConnectionDetector
     from monitor.issues import IssueDetector
+    from monitor.network import NetworkStats
     from monitor.scanner import NetworkScanner
     from monitor.traffic import TrafficMonitor
-    from storage.sqlite_store import SQLiteStore
-    from storage.settings import get_settings_manager
     from service.launch_agent import get_launch_agent_manager
-    from app.events import get_event_bus
-    
+    from storage.settings import get_settings_manager
+    from storage.sqlite_store import SQLiteStore
+
     logger.info("Creating application dependencies...")
-    
+
     # Resolve data directory
     if data_dir is None:
         data_dir = Path.home() / STORAGE.DATA_DIR_NAME
-    
+
     # Create storage first (other components may depend on it)
     store = SQLiteStore(data_dir=data_dir)
     settings = get_settings_manager(data_dir)
-    
+
     # Create monitoring components
     network_stats = NetworkStats()
     connection_detector = ConnectionDetector()
     issue_detector = IssueDetector()
     network_scanner = NetworkScanner()
     traffic_monitor = TrafficMonitor()
-    
+
     # Create service components
     launch_manager = get_launch_agent_manager()
-    
+
     # Use provided event bus or get global one
     if event_bus is None:
         event_bus = get_event_bus()
-    
+
     deps = AppDependencies(
         network_stats=network_stats,
         connection_detector=connection_detector,
@@ -117,7 +117,7 @@ def create_dependencies(
         launch_manager=launch_manager,
         event_bus=event_bus,
     )
-    
+
     logger.info("All dependencies created successfully")
     return deps
 
@@ -131,20 +131,20 @@ def create_mock_dependencies() -> AppDependencies:
     Returns:
         AppDependencies with mock implementations.
     """
+    from app.events import EventBus
     from tests.mocks import (
-        MockNetworkStats,
         MockConnectionDetector,
         MockIssueDetector,
-        MockNetworkScanner,
-        MockTrafficMonitor,
         MockJsonStore,
-        MockSettingsManager,
         MockLaunchAgentManager,
+        MockNetworkScanner,
+        MockNetworkStats,
+        MockSettingsManager,
+        MockTrafficMonitor,
     )
-    from app.events import EventBus
-    
+
     logger.debug("Creating mock dependencies for testing")
-    
+
     return AppDependencies(
         network_stats=MockNetworkStats(),
         connection_detector=MockConnectionDetector(),

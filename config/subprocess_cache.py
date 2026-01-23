@@ -21,13 +21,13 @@ Usage:
 """
 # nosec B404 - subprocess usage is required and validated via allowlist
 import subprocess
-import time
 import threading
-from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Tuple, Any
+import time
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Dict, List, Optional, Tuple
 
-from config.constants import INTERVALS, ALLOWED_SUBPROCESS_COMMANDS
+from config.constants import ALLOWED_SUBPROCESS_COMMANDS, INTERVALS
 from config.exceptions import SubprocessError
 from config.logging_config import get_logger, log_subprocess_call
 
@@ -40,7 +40,7 @@ class CachedResult:
     result: subprocess.CompletedProcess
     timestamp: float
     duration_ms: float
-    
+
     def is_expired(self, ttl: float) -> bool:
         """Check if this cached result has expired."""
         return (time.time() - self.timestamp) >= ttl
@@ -62,7 +62,7 @@ class SubprocessCache:
         >>> # Second call within 5 seconds returns cached result
         >>> result2 = cache.run(['arp', '-an'])
     """
-    
+
     def __init__(
         self,
         default_ttl: float = 5.0,
@@ -77,11 +77,11 @@ class SubprocessCache:
             'misses': 0,
             'errors': 0,
         }
-    
+
     def _make_key(self, cmd: List[str]) -> Tuple[str, ...]:
         """Create a hashable cache key from command."""
         return tuple(cmd)
-    
+
     def _cleanup_expired(self) -> None:
         """Remove expired entries from cache."""
         now = time.time()
@@ -91,7 +91,7 @@ class SubprocessCache:
         ]
         for key in expired_keys:
             del self._cache[key]
-        
+
         # If still too large, remove oldest entries
         if len(self._cache) > self.max_cache_size:
             sorted_items = sorted(
@@ -100,7 +100,7 @@ class SubprocessCache:
             )
             for key, _ in sorted_items[:len(self._cache) - self.max_cache_size]:
                 del self._cache[key]
-    
+
     def run(
         self,
         cmd: List[str],
@@ -129,7 +129,7 @@ class SubprocessCache:
         ttl = ttl if ttl is not None else self.default_ttl
         timeout = timeout or INTERVALS.SUBPROCESS_TIMEOUT_SECONDS
         key = self._make_key(cmd)
-        
+
         # Check cache first
         if not bypass_cache:
             with self._lock:
@@ -137,26 +137,26 @@ class SubprocessCache:
                     self._stats['hits'] += 1
                     logger.debug(f"Cache hit for: {cmd[0]}")
                     return self._cache[key].result
-        
+
         # Run the command
         self._stats['misses'] += 1
         start_time = time.time()
-        
+
         try:
             # Ensure safe defaults
             kwargs.setdefault('capture_output', True)
             kwargs.setdefault('text', True)
             kwargs['timeout'] = timeout
-            
+
             result = subprocess.run(cmd, **kwargs)  # nosec B603 - Commands validated via allowlist
             duration_ms = (time.time() - start_time) * 1000
-            
+
             # Log the call
             log_subprocess_call(
                 logger, cmd, result.returncode, duration_ms,
                 success=(result.returncode == 0)
             )
-            
+
             # Cache successful results
             with self._lock:
                 self._cache[key] = CachedResult(
@@ -165,9 +165,9 @@ class SubprocessCache:
                     duration_ms=duration_ms
                 )
                 self._cleanup_expired()
-            
+
             return result
-            
+
         except subprocess.TimeoutExpired as e:
             self._stats['errors'] += 1
             duration_ms = (time.time() - start_time) * 1000
@@ -177,7 +177,7 @@ class SubprocessCache:
                 command=cmd,
                 details={'timeout': timeout}
             ) from e
-            
+
         except FileNotFoundError as e:
             self._stats['errors'] += 1
             logger.error(f"Command not found: {cmd[0]}")
@@ -185,7 +185,7 @@ class SubprocessCache:
                 f"Command not found: {cmd[0]}",
                 command=cmd
             ) from e
-            
+
         except Exception as e:
             self._stats['errors'] += 1
             logger.error(f"Subprocess error for {cmd}: {e}")
@@ -193,7 +193,7 @@ class SubprocessCache:
                 f"Subprocess error: {e}",
                 command=cmd
             ) from e
-    
+
     def invalidate(self, cmd: Optional[List[str]] = None) -> None:
         """Invalidate cached results.
         
@@ -209,7 +209,7 @@ class SubprocessCache:
                 if key in self._cache:
                     del self._cache[key]
                     logger.debug(f"Invalidated cache for: {cmd[0]}")
-    
+
     def get_stats(self) -> dict:
         """Get cache statistics."""
         with self._lock:
@@ -268,12 +268,12 @@ def safe_run(
     """
     if not cmd:
         raise SubprocessError("Empty command", command=cmd)
-    
+
     # Extract base command name
     base_cmd = cmd[0]
     if '/' in base_cmd:
         base_cmd = Path(base_cmd).name
-    
+
     # Validate against allowlist
     if check_allowed and base_cmd not in ALLOWED_SUBPROCESS_COMMANDS:
         raise SubprocessError(
@@ -281,7 +281,7 @@ def safe_run(
             command=cmd,
             details={'allowed': list(ALLOWED_SUBPROCESS_COMMANDS)}
         )
-    
+
     # Use the global cache for execution (with no caching by default)
     cache = get_subprocess_cache()
     return cache.run(cmd, ttl=0, bypass_cache=True, timeout=timeout, **kwargs)
@@ -316,5 +316,5 @@ def run_with_fallback(
         except SubprocessError as e:
             logger.debug(f"Fallback command failed: {cmd[0]} - {e}")
             continue
-    
+
     return None

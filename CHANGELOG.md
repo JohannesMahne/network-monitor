@@ -7,8 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-01-22
+
+### Added
+- AppController for business logic orchestration with dependency injection
+- EventBus for decoupled component communication (pub/sub pattern)
+- MenuAwareTimer extracted to `app/timer.py` for better modularity
+- SingletonLock extracted to `config/singleton.py` for reusability
+- Comprehensive test fixtures in `tests/conftest.py` for common mocking patterns
+- Integration test suite with pytest markers (unit, integration, slow)
+- New tests for ConnectionDetector, MenuBuilder, NetworkScanner, and dependencies
+- GitHub Actions CI now fails on coverage regression below 65%
+
 ### Changed
+- Wired AppController into main NetworkMonitorApp for cleaner architecture
+- Test coverage improved from 65% to 69%
+- `menu_builder.py` coverage: 30% → 92%
+- `dependencies.py` coverage: 41% → 96%
+- `connection.py` coverage: 49% → 69%
+- `network.py` coverage: 59% → 94%
+- Added pytest warning filters for matplotlib deprecation warnings
 - Improved documentation and consistency (British English, clarified install/dev instructions)
+
+### Fixed
+- Event subscription pattern now properly connects controller events to UI updates
 
 ## [1.4.0] - 2026-01-15
 

@@ -5,13 +5,13 @@ Contains:
 - menu_builder: Menu construction helpers
 - dialogs: Alert and input dialogs
 """
-from app.views.icons import IconGenerator, create_status_icon, create_gauge_icon, create_sparkline
+from app.views.icons import IconGenerator, create_gauge_icon, create_sparkline, create_status_icon
 from app.views.menu_builder import MenuBuilder
 
 __all__ = [
     "IconGenerator",
-    "create_status_icon",
+    "MenuBuilder",
     "create_gauge_icon",
     "create_sparkline",
-    "MenuBuilder",
+    "create_status_icon",
 ]

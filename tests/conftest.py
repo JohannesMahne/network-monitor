@@ -9,9 +9,10 @@ import json
 import sqlite3
 import tempfile
 import warnings
+from collections.abc import Generator
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Generator
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -274,8 +275,7 @@ def integration_data_dir(tmp_path: Path) -> Path:
 def integration_store(integration_data_dir: Path):
     """Create a real SQLite store for integration testing."""
     from storage.sqlite_store import SQLiteStore
-    
-    db_path = integration_data_dir / "network_monitor.db"
-    store = SQLiteStore(str(db_path))
+
+    store = SQLiteStore(data_dir=integration_data_dir)
     yield store
     store.close()

@@ -88,4 +88,4 @@ def format_duration(seconds: NumericValue) -> str:
         return f"{hours}h {minutes}m" if minutes else f"{hours}h"
 
 
-__all__ = ["format_bytes", "format_duration", "NumericValue"]
+__all__ = ["NumericValue", "format_bytes", "format_duration"]

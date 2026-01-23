@@ -1,12 +1,12 @@
 """Connection detection for WiFi and Ethernet on macOS."""
-import subprocess
 import re
 from dataclasses import dataclass
-from typing import Optional, List
 from pathlib import Path
+from typing import List, Optional
+
 import psutil
 
-from config import get_logger, INTERVALS
+from config import INTERVALS, get_logger
 from config.subprocess_cache import get_subprocess_cache
 
 logger = get_logger(__name__)
@@ -26,10 +26,10 @@ class ConnectionInfo:
 
 class ConnectionDetector:
     """Detects and monitors network connection type and details."""
-    
+
     # Airport command path (removed in newer macOS versions)
     AIRPORT_PATH = '/System/Library/PrivateFrameworks/Apple80211.framework/Versions/Current/Resources/airport'
-    
+
     def __init__(self):
         self._last_connection: Optional[ConnectionInfo] = None
         self._subprocess_cache = get_subprocess_cache()
@@ -37,7 +37,7 @@ class ConnectionDetector:
         # Check once at startup if airport command exists
         self._has_airport = Path(self.AIRPORT_PATH).exists()
         logger.debug(f"ConnectionDetector initialized, WiFi interface: {self._wifi_interface}, airport={self._has_airport}")
-    
+
     def _find_wifi_interface(self) -> str:
         """Find the WiFi interface name (usually en0 or en1)."""
         try:
@@ -58,28 +58,28 @@ class ConnectionDetector:
         except Exception as e:
             logger.debug(f"Error finding WiFi interface: {e}")
         return 'en0'  # Default fallback
-    
+
     def _get_wifi_ssid(self) -> Optional[str]:
         """Get the current WiFi SSID using CoreWLAN or command-line tools."""
-        
+
         # Method 1: Try CoreWLAN framework (works if Location Services enabled)
         try:
             import objc
             from Foundation import NSBundle
-            
+
             CoreWLAN = NSBundle.bundleWithPath_('/System/Library/Frameworks/CoreWLAN.framework')
             if CoreWLAN and CoreWLAN.load():
                 CWWiFiClient = objc.lookUpClass('CWWiFiClient')
                 client = CWWiFiClient.sharedWiFiClient()
                 interface = client.interface()
-                
+
                 if interface:
                     ssid = interface.ssid()
                     if ssid and ssid != '<redacted>':
                         return ssid
         except Exception:
             pass  # nosec B110 - Fallback chain, continue to next method
-        
+
         # Method 2: Try networksetup command (cached for 2 seconds - SSID changes slowly)
         try:
             result = self._subprocess_cache.run(
@@ -96,7 +96,7 @@ class ConnectionDetector:
                         return ssid
         except Exception:
             pass  # nosec B110 - Fallback chain, continue to next method
-        
+
         # Method 3: Try airport command (only if it exists - removed in newer macOS)
         if self._has_airport:
             try:
@@ -114,7 +114,7 @@ class ConnectionDetector:
                             return ssid
             except Exception:
                 pass  # nosec B110 - Fallback chain, continue to next method
-        
+
         # Method 4: Check if we're connected to WiFi but SSID is private
         # (macOS 14+ hides SSID without Location Services permission)
         try:
@@ -128,30 +128,30 @@ class ConnectionDetector:
                 return "[Private Network]"
         except Exception:
             pass  # nosec B110 - Fallback chain, return None below
-        
+
         return None
-    
+
     def _get_active_interfaces(self) -> List[str]:
         """Get list of active network interfaces with IP addresses."""
         active = []
         addrs = psutil.net_if_addrs()
         stats = psutil.net_if_stats()
-        
+
         for iface, addr_list in addrs.items():
             # Skip loopback and inactive interfaces
             if iface == 'lo0' or iface.startswith('lo'):
                 continue
             if iface not in stats or not stats[iface].isup:
                 continue
-            
+
             # Check for IPv4 address
             for addr in addr_list:
                 if addr.family.name == 'AF_INET' and not addr.address.startswith('127.'):
                     active.append(iface)
                     break
-        
+
         return active
-    
+
     def _get_ip_address(self, interface: str) -> Optional[str]:
         """Get IP address for an interface."""
         addrs = psutil.net_if_addrs()
@@ -160,7 +160,7 @@ class ConnectionDetector:
                 if addr.family.name == 'AF_INET':
                     return addr.address
         return None
-    
+
     def _get_interface_type(self, interface: str) -> str:
         """Determine the type of network interface."""
         try:
@@ -180,11 +180,11 @@ class ConnectionDetector:
         except Exception:
             pass  # nosec B110 - Best effort, return "Unknown" below
         return "Unknown"
-    
+
     def get_current_connection(self) -> ConnectionInfo:
         """Get information about the current network connection."""
         active_interfaces = self._get_active_interfaces()
-        
+
         if not active_interfaces:
             return ConnectionInfo(
                 connection_type="None",
@@ -192,7 +192,7 @@ class ConnectionDetector:
                 interface="",
                 is_connected=False
             )
-        
+
         # Check if WiFi is active and connected to a network
         if self._wifi_interface in active_interfaces:
             ssid = self._get_wifi_ssid()
@@ -206,11 +206,11 @@ class ConnectionDetector:
                     is_connected=True,
                     ip_address=self._get_ip_address(self._wifi_interface)
                 )
-        
+
         # Check each active interface and determine its type
         for iface in active_interfaces:
             iface_type = self._get_interface_type(iface)
-            
+
             # WiFi interface but no SSID (might be sharing, bridge, etc.)
             if iface == self._wifi_interface:
                 return ConnectionInfo(
@@ -220,7 +220,7 @@ class ConnectionDetector:
                     is_connected=True,
                     ip_address=self._get_ip_address(iface)
                 )
-            
+
             # Ethernet-type connections
             if 'Ethernet' in iface_type or 'LAN' in iface_type:
                 return ConnectionInfo(
@@ -230,7 +230,7 @@ class ConnectionDetector:
                     is_connected=True,
                     ip_address=self._get_ip_address(iface)
                 )
-            
+
             # Thunderbolt connections (often docks with Ethernet)
             if 'Thunderbolt' in iface_type:
                 return ConnectionInfo(
@@ -240,7 +240,7 @@ class ConnectionDetector:
                     is_connected=True,
                     ip_address=self._get_ip_address(iface)
                 )
-            
+
             # Bridge connections
             if iface.startswith('bridge'):
                 return ConnectionInfo(
@@ -250,7 +250,7 @@ class ConnectionDetector:
                     is_connected=True,
                     ip_address=self._get_ip_address(iface)
                 )
-        
+
         # Fallback: use first active interface
         iface = active_interfaces[0]
         iface_type = self._get_interface_type(iface)
@@ -261,36 +261,36 @@ class ConnectionDetector:
             is_connected=True,
             ip_address=self._get_ip_address(iface)
         )
-    
+
     def has_connection_changed(self) -> bool:
         """Check if the connection has changed since last check."""
         current = self.get_current_connection()
-        
+
         if self._last_connection is None:
             self._last_connection = current
             return True
-        
+
         changed = (
             current.connection_type != self._last_connection.connection_type or
             current.name != self._last_connection.name or
             current.is_connected != self._last_connection.is_connected
         )
-        
+
         self._last_connection = current
         return changed
-    
+
     def get_connection_key(self) -> str:
         """Get a unique key for the current connection (for storage)."""
         conn = self.get_current_connection()
         if not conn.is_connected:
             return "Disconnected"
         return f"{conn.connection_type}:{conn.name}"
-    
+
     # === VPN Detection ===
-    
+
     # Known VPN interface prefixes
     VPN_INTERFACE_PREFIXES = ('utun', 'tun', 'tap', 'ppp', 'ipsec', 'gif')
-    
+
     # Known VPN process names (partial matches)
     VPN_PROCESS_NAMES = (
         'openvpn', 'wireguard', 'nordvpn', 'expressvpn', 'surfshark',
@@ -298,7 +298,7 @@ class ConnectionDetector:
         'viscosity', 'cisco', 'anyconnect', 'globalprotect', 'forticlient',
         'pulse', 'f5', 'zscaler', 'netskope', 'cloudflare', 'warp'
     )
-    
+
     def detect_vpn(self) -> tuple:
         """Detect if a VPN connection is active.
         
@@ -309,25 +309,25 @@ class ConnectionDetector:
         vpn_interface = self._check_vpn_interfaces()
         if vpn_interface:
             return True, vpn_interface
-        
+
         # Method 2: Check for running VPN processes
         vpn_process = self._check_vpn_processes()
         if vpn_process:
             return True, vpn_process
-        
+
         # Method 3: Check for VPN configuration in network services
         vpn_service = self._check_vpn_services()
         if vpn_service:
             return True, vpn_service
-        
+
         return False, None
-    
+
     def _check_vpn_interfaces(self) -> Optional[str]:
         """Check for active VPN network interfaces."""
         try:
             stats = psutil.net_if_stats()
             addrs = psutil.net_if_addrs()
-            
+
             for iface_name, iface_stats in stats.items():
                 # Check if interface is up and matches VPN patterns
                 if iface_stats.isup:
@@ -341,7 +341,7 @@ class ConnectionDetector:
         except Exception as e:
             logger.debug(f"VPN interface check error: {e}")
         return None
-    
+
     def _check_vpn_processes(self) -> Optional[str]:
         """Check for running VPN processes."""
         try:
@@ -357,7 +357,7 @@ class ConnectionDetector:
         except Exception as e:
             logger.debug(f"VPN process check error: {e}")
         return None
-    
+
     def _check_vpn_services(self) -> Optional[str]:
         """Check macOS network services for active VPN."""
         try:
@@ -366,7 +366,7 @@ class ConnectionDetector:
                 ttl=30.0,
                 timeout=INTERVALS.SUBPROCESS_TIMEOUT_SECONDS
             )
-            
+
             if result.returncode == 0:
                 # Look for VPN-related services that are active
                 lines = result.stdout.split('\n')
@@ -383,7 +383,7 @@ class ConnectionDetector:
         except Exception as e:
             logger.debug(f"VPN service check error: {e}")
         return None
-    
+
     def _is_service_active(self, service_name: str) -> bool:
         """Check if a network service is currently active."""
         try:

@@ -3,7 +3,7 @@
 Provides specific exceptions for different error categories,
 enabling better error handling and debugging.
 """
-from typing import Optional, Any
+from typing import Optional
 
 
 class NetworkMonitorError(Exception):
@@ -16,12 +16,12 @@ class NetworkMonitorError(Exception):
         message: Human-readable error description.
         details: Optional dictionary with additional error context.
     """
-    
+
     def __init__(self, message: str, details: Optional[dict] = None):
         self.message = message
         self.details = details or {}
         super().__init__(self.message)
-    
+
     def __str__(self) -> str:
         if self.details:
             return f"{self.message} (details: {self.details})"
@@ -107,7 +107,7 @@ class SubprocessError(NetworkMonitorError):
         ...     details={"command": ["ping", "-c", "1", "8.8.8.8"], "returncode": 1}
         ... )
     """
-    
+
     def __init__(
         self,
         message: str,
@@ -126,7 +126,7 @@ class SubprocessError(NetworkMonitorError):
             details["stdout"] = stdout[:500]  # Truncate long output
         if stderr:
             details["stderr"] = stderr[:500]
-        
+
         super().__init__(message, details)
         self.command = command
         self.returncode = returncode

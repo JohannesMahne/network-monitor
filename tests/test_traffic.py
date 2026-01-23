@@ -1,8 +1,9 @@
 """Tests for traffic monitoring."""
-import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
-from monitor.traffic import TrafficMonitor, ProcessTraffic, ServiceCategory, PORT_CATEGORIES
+import pytest
+
+from monitor.traffic import PORT_CATEGORIES, ProcessTraffic, ServiceCategory, TrafficMonitor
 
 
 class TestProcessTraffic:
@@ -123,7 +124,7 @@ class TestTrafficMonitor:
         mock_proc_instance = MagicMock()
         mock_proc_instance.name.return_value = "Safari"
         mock_process.return_value = mock_proc_instance
-        
+
         name = monitor._get_process_name(1234)
         assert name == "Safari"
 
@@ -132,7 +133,7 @@ class TestTrafficMonitor:
         """Test handling non-existent process."""
         import psutil
         mock_process.side_effect = psutil.NoSuchProcess(1234)
-        
+
         name = monitor._get_process_name(1234)
         assert name is None
 
@@ -145,7 +146,7 @@ class TestTrafficMonitor:
         mock_conn.laddr.port = 12345
         mock_conn.raddr.port = 443
         mock_connections.return_value = [mock_conn]
-        
+
         connections = monitor._get_active_connections()
         assert 1234 in connections
         assert len(connections[1234]) == 1
@@ -156,7 +157,7 @@ class TestTrafficMonitor:
             returncode=0,
             stdout="COMMAND     PID\nSafari      1234 ESTABLISHED\nChrome      5678 ESTABLISHED\n"
         )
-        
+
         result = monitor._run_netstat_processes()
         # Should have some entries (parsing may vary)
         assert isinstance(result, dict)
@@ -172,10 +173,10 @@ class TestTrafficMonitor:
         mock_conn.laddr.port = 12345
         mock_conn.raddr.port = 443
         mock_connections.return_value = [mock_conn]
-        
+
         mock_name.return_value = "Safari"
         mock_netstat.return_value = {}
-        
+
         traffic = monitor.get_traffic_by_process()
         assert len(traffic) >= 0  # May or may not have data depending on mocks
 
@@ -186,7 +187,7 @@ class TestTrafficMonitor:
             ProcessTraffic(pid=1, name="Safari", bytes_in=1000, bytes_out=500, connections=2),
             ProcessTraffic(pid=2, name="Chrome", bytes_in=2000, bytes_out=1000, connections=3),
         ]
-        
+
         summary = monitor.get_traffic_summary()
         assert len(summary) == 2
 
@@ -198,7 +199,7 @@ class TestTrafficMonitor:
             ("Safari", 2000, 1000, 3),
             ("Firefox", 1000, 500, 2),
         ]
-        
+
         top = monitor.get_top_processes(limit=2)
         assert len(top) == 2
         assert top[0][0] == "Chrome"
@@ -213,9 +214,9 @@ class TestTrafficMonitor:
         mock_conn.laddr = MagicMock(port=12345)
         mock_conn.raddr = MagicMock(port=443)
         mock_connections.return_value = [mock_conn]
-        
+
         mock_name.return_value = "Safari"
-        
+
         categories = monitor.categorize_traffic()
         # Should have at least one category
         assert isinstance(categories, dict)
@@ -240,13 +241,13 @@ class TestTrafficAggregation:
             ProcessTraffic(pid=1, name="Google Chrome", bytes_in=1000, bytes_out=500, connections=2),
             ProcessTraffic(pid=2, name="Google Chrome Helper", bytes_in=500, bytes_out=250, connections=3),
         ]
-        
+
         summary = monitor.get_traffic_summary()
-        
+
         # Should be aggregated into one "Chrome" entry
         chrome_entries = [s for s in summary if s[0] == "Chrome"]
         assert len(chrome_entries) == 1
-        
+
         # Total should be combined
         chrome = chrome_entries[0]
         assert chrome[1] == 1500  # bytes_in

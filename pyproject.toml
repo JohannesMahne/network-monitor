@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "network-monitor"
-version = "1.4.0"
+version = "1.5.0"
 description = "A macOS menu bar application for monitoring network traffic"
 readme = "README.md"
 license = {text = "MIT"}
@@ -155,7 +155,7 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/*" = ["ARG", "PLR"]
+"tests/*" = ["ARG", "PLR", "PLC0415", "PTH123", "B007"]
 "__init__.py" = ["F401"]
 
 [tool.ruff.lint.isort]
