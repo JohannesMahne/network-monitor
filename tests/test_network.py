@@ -1,4 +1,5 @@
 """Tests for monitor/network.py"""
+
 from monitor.network import NetworkStats, format_bytes
 
 

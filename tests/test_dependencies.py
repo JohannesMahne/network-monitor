@@ -1,4 +1,5 @@
 """Tests for app/dependencies.py - Dependency injection container."""
+
 from unittest.mock import MagicMock
 
 import pytest
@@ -16,6 +17,10 @@ class TestAppDependencies:
         mock_issue_detector = MagicMock()
         mock_network_scanner = MagicMock()
         mock_traffic_monitor = MagicMock()
+        mock_bandwidth_monitor = MagicMock()
+        mock_dns_monitor = MagicMock()
+        mock_geolocation_service = MagicMock()
+        mock_connection_tracker = MagicMock()
         mock_store = MagicMock()
         mock_settings = MagicMock()
         mock_launch_manager = MagicMock()
@@ -26,6 +31,10 @@ class TestAppDependencies:
             issue_detector=mock_issue_detector,
             network_scanner=mock_network_scanner,
             traffic_monitor=mock_traffic_monitor,
+            bandwidth_monitor=mock_bandwidth_monitor,
+            dns_monitor=mock_dns_monitor,
+            geolocation_service=mock_geolocation_service,
+            connection_tracker=mock_connection_tracker,
             store=mock_store,
             settings=mock_settings,
             launch_manager=mock_launch_manager,
@@ -43,6 +52,10 @@ class TestAppDependencies:
             issue_detector=MagicMock(),
             network_scanner=MagicMock(),
             traffic_monitor=MagicMock(),
+            bandwidth_monitor=MagicMock(),
+            dns_monitor=MagicMock(),
+            geolocation_service=MagicMock(),
+            connection_tracker=MagicMock(),
             store=MagicMock(),
             settings=MagicMock(),
             launch_manager=MagicMock(),
@@ -59,6 +72,10 @@ class TestAppDependencies:
             issue_detector=MagicMock(),
             network_scanner=MagicMock(),
             traffic_monitor=MagicMock(),
+            bandwidth_monitor=MagicMock(),
+            dns_monitor=MagicMock(),
+            geolocation_service=MagicMock(),
+            connection_tracker=MagicMock(),
             store=MagicMock(),
             settings=MagicMock(),
             launch_manager=MagicMock(),
@@ -160,27 +177,27 @@ class TestCreateMockDependencies:
         deps = create_mock_dependencies()
 
         # Should have key methods available
-        assert hasattr(deps.network_stats, 'get_current_stats')
-        assert hasattr(deps.network_stats, 'initialize')
-        assert hasattr(deps.network_stats, 'get_session_totals')
+        assert hasattr(deps.network_stats, "get_current_stats")
+        assert hasattr(deps.network_stats, "initialize")
+        assert hasattr(deps.network_stats, "get_session_totals")
 
     def test_mock_store_methods(self):
         """Test that mock store has expected methods."""
         deps = create_mock_dependencies()
 
         # Should have key methods available
-        assert hasattr(deps.store, 'update_stats')
-        assert hasattr(deps.store, 'get_today_totals')
-        assert hasattr(deps.store, 'flush')
+        assert hasattr(deps.store, "update_stats")
+        assert hasattr(deps.store, "get_today_totals")
+        assert hasattr(deps.store, "flush")
 
     def test_mock_settings_methods(self):
         """Test that mock settings has expected methods."""
         deps = create_mock_dependencies()
 
         # Should have key methods available
-        assert hasattr(deps.settings, 'get_title_display')
-        assert hasattr(deps.settings, 'set_title_display')
-        assert hasattr(deps.settings, 'get_budget')
+        assert hasattr(deps.settings, "get_title_display")
+        assert hasattr(deps.settings, "set_title_display")
+        assert hasattr(deps.settings, "get_budget")
 
 
 @pytest.mark.integration

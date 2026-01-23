@@ -11,6 +11,7 @@ Features:
 - Data cleanup and retention policies
 - Backup and restore functionality
 """
+
 import json
 import shutil
 import sqlite3
@@ -34,6 +35,7 @@ SCHEMA_VERSION = 1
 @dataclass
 class ConnectionStats:
     """Statistics for a single connection."""
+
     bytes_sent: int = 0
     bytes_recv: int = 0
     peak_upload: float = 0
@@ -50,23 +52,23 @@ class ConnectionStats:
             "bytes_recv": self.bytes_recv,
             "peak_upload": self.peak_upload,
             "peak_download": self.peak_download,
-            "issues": self.issues
+            "issues": self.issues,
         }
 
     @classmethod
-    def from_dict(cls, data: dict) -> 'ConnectionStats':
+    def from_dict(cls, data: dict) -> "ConnectionStats":
         return cls(
             bytes_sent=data.get("bytes_sent", 0),
             bytes_recv=data.get("bytes_recv", 0),
             peak_upload=data.get("peak_upload", 0),
             peak_download=data.get("peak_download", 0),
-            issues=data.get("issues", [])
+            issues=data.get("issues", []),
         )
 
 
 class SQLiteStore:
     """Handles persistence of network statistics to SQLite database.
-    
+
     This class provides the same interface as JsonStore for compatibility,
     but uses SQLite for storage, offering better performance for queries
     and historical data analysis.
@@ -133,7 +135,7 @@ class SQLiteStore:
 
     def __init__(self, data_dir: Optional[Path] = None):
         """Initialize SQLite store.
-        
+
         Args:
             data_dir: Directory for database file. Defaults to ~/.network-monitor/
         """
@@ -159,13 +161,13 @@ class SQLiteStore:
     @contextmanager
     def _connection(self):
         """Context manager for database connections.
-        
+
         Uses WAL mode for better concurrency and enables foreign keys.
         """
         conn = sqlite3.connect(
             self.db_path,
             timeout=30.0,
-            isolation_level=None  # Autocommit mode, we handle transactions manually
+            isolation_level=None,  # Autocommit mode, we handle transactions manually
         )
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA journal_mode=WAL")
@@ -183,7 +185,7 @@ class SQLiteStore:
                 # Set schema version if not exists
                 conn.execute(
                     "INSERT OR IGNORE INTO schema_info (key, value) VALUES (?, ?)",
-                    ("version", str(SCHEMA_VERSION))
+                    ("version", str(SCHEMA_VERSION)),
                 )
             logger.debug("Database schema initialized")
         except sqlite3.Error as e:
@@ -206,7 +208,7 @@ class SQLiteStore:
 
     def _migrate_from_json(self, json_file: Path) -> None:
         """Migrate data from JSON file to SQLite.
-        
+
         Args:
             json_file: Path to the existing JSON stats file
         """
@@ -223,34 +225,40 @@ class SQLiteStore:
                     for date_key, day_data in json_data.items():
                         for conn_key, stats in day_data.items():
                             # Insert traffic stats
-                            conn.execute("""
+                            conn.execute(
+                                """
                                 INSERT OR REPLACE INTO traffic_stats 
                                 (date, connection_key, bytes_sent, bytes_recv, peak_upload, peak_download)
                                 VALUES (?, ?, ?, ?, ?, ?)
-                            """, (
-                                date_key,
-                                conn_key,
-                                stats.get("bytes_sent", 0),
-                                stats.get("bytes_recv", 0),
-                                stats.get("peak_upload", 0),
-                                stats.get("peak_download", 0)
-                            ))
+                            """,
+                                (
+                                    date_key,
+                                    conn_key,
+                                    stats.get("bytes_sent", 0),
+                                    stats.get("bytes_recv", 0),
+                                    stats.get("peak_upload", 0),
+                                    stats.get("peak_download", 0),
+                                ),
+                            )
                             migrated_records += 1
 
                             # Migrate issues if present
                             for issue in stats.get("issues", []):
-                                conn.execute("""
+                                conn.execute(
+                                    """
                                     INSERT INTO issues 
                                     (date, connection_key, timestamp, issue_type, description, details)
                                     VALUES (?, ?, ?, ?, ?, ?)
-                                """, (
-                                    date_key,
-                                    conn_key,
-                                    issue.get("timestamp", ""),
-                                    issue.get("issue_type", "unknown"),
-                                    issue.get("description", ""),
-                                    json.dumps(issue.get("details", {}))
-                                ))
+                                """,
+                                    (
+                                        date_key,
+                                        conn_key,
+                                        issue.get("timestamp", ""),
+                                        issue.get("issue_type", "unknown"),
+                                        issue.get("description", ""),
+                                        json.dumps(issue.get("details", {})),
+                                    ),
+                                )
                                 migrated_issues += 1
 
                     conn.execute("COMMIT")
@@ -259,7 +267,7 @@ class SQLiteStore:
                     raise
 
             # Rename old JSON file to backup
-            backup_file = json_file.with_suffix('.json.bak')
+            backup_file = json_file.with_suffix(".json.bak")
             json_file.rename(backup_file)
 
             logger.info(
@@ -284,10 +292,16 @@ class SQLiteStore:
 
     # === Core Statistics Methods ===
 
-    def update_stats(self, connection_key: str, bytes_sent: int, bytes_recv: int,
-                     peak_upload: float = 0, peak_download: float = 0) -> None:
+    def update_stats(
+        self,
+        connection_key: str,
+        bytes_sent: int,
+        bytes_recv: int,
+        peak_upload: float = 0,
+        peak_download: float = 0,
+    ) -> None:
         """Update statistics for a connection by ADDING to existing values.
-        
+
         Args:
             connection_key: Connection identifier (e.g., SSID or interface name)
             bytes_sent: Bytes sent since last update (delta, not total)
@@ -302,7 +316,8 @@ class SQLiteStore:
                 with self._connection() as conn:
                     # Use UPSERT to ADD to existing values (not replace)
                     # This ensures data persists across app restarts
-                    conn.execute("""
+                    conn.execute(
+                        """
                         INSERT INTO traffic_stats 
                         (date, connection_key, bytes_sent, bytes_recv, peak_upload, peak_download, updated_at)
                         VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
@@ -312,14 +327,16 @@ class SQLiteStore:
                             peak_upload = MAX(peak_upload, excluded.peak_upload),
                             peak_download = MAX(peak_download, excluded.peak_download),
                             updated_at = CURRENT_TIMESTAMP
-                    """, (today, connection_key, bytes_sent, bytes_recv, peak_upload, peak_download))
+                    """,
+                        (today, connection_key, bytes_sent, bytes_recv, peak_upload, peak_download),
+                    )
             except sqlite3.Error as e:
                 logger.error(f"Failed to update stats: {e}")
                 raise StorageError(f"Failed to update statistics: {e}")
 
     def add_issue(self, connection_key: str, issue: dict) -> None:
         """Add an issue to the log.
-        
+
         Args:
             connection_key: Connection identifier
             issue: Issue dictionary with timestamp, issue_type, description, details
@@ -329,18 +346,21 @@ class SQLiteStore:
 
             try:
                 with self._connection() as conn:
-                    conn.execute("""
+                    conn.execute(
+                        """
                         INSERT INTO issues 
                         (date, connection_key, timestamp, issue_type, description, details)
                         VALUES (?, ?, ?, ?, ?, ?)
-                    """, (
-                        today,
-                        connection_key,
-                        issue.get("timestamp", datetime.now().isoformat()),
-                        issue.get("issue_type", "unknown"),
-                        issue.get("description", ""),
-                        json.dumps(issue.get("details", {}))
-                    ))
+                    """,
+                        (
+                            today,
+                            connection_key,
+                            issue.get("timestamp", datetime.now().isoformat()),
+                            issue.get("issue_type", "unknown"),
+                            issue.get("description", ""),
+                            json.dumps(issue.get("details", {})),
+                        ),
+                    )
             except sqlite3.Error as e:
                 logger.error(f"Failed to add issue: {e}")
                 raise StorageError(f"Failed to add issue: {e}")
@@ -351,28 +371,34 @@ class SQLiteStore:
 
         try:
             with self._connection() as conn:
-                cursor = conn.execute("""
+                cursor = conn.execute(
+                    """
                     SELECT bytes_sent, bytes_recv, peak_upload, peak_download
                     FROM traffic_stats
                     WHERE date = ? AND connection_key = ?
-                """, (today, connection_key))
+                """,
+                    (today, connection_key),
+                )
                 row = cursor.fetchone()
 
                 if row:
                     # Get issues for this connection today
-                    issues_cursor = conn.execute("""
+                    issues_cursor = conn.execute(
+                        """
                         SELECT timestamp, issue_type, description, details
                         FROM issues
                         WHERE date = ? AND connection_key = ?
                         ORDER BY timestamp
-                    """, (today, connection_key))
+                    """,
+                        (today, connection_key),
+                    )
 
                     issues = [
                         {
                             "timestamp": r["timestamp"],
                             "issue_type": r["issue_type"],
                             "description": r["description"],
-                            "details": json.loads(r["details"]) if r["details"] else {}
+                            "details": json.loads(r["details"]) if r["details"] else {},
                         }
                         for r in issues_cursor
                     ]
@@ -382,7 +408,7 @@ class SQLiteStore:
                         bytes_recv=row["bytes_recv"],
                         peak_upload=row["peak_upload"],
                         peak_download=row["peak_download"],
-                        issues=issues
+                        issues=issues,
                     )
                 return None
         except sqlite3.Error as e:
@@ -396,27 +422,33 @@ class SQLiteStore:
 
         try:
             with self._connection() as conn:
-                cursor = conn.execute("""
+                cursor = conn.execute(
+                    """
                     SELECT connection_key, bytes_sent, bytes_recv, peak_upload, peak_download
                     FROM traffic_stats
                     WHERE date = ?
-                """, (today,))
+                """,
+                    (today,),
+                )
 
                 for row in cursor:
                     # Get issues for this connection
-                    issues_cursor = conn.execute("""
+                    issues_cursor = conn.execute(
+                        """
                         SELECT timestamp, issue_type, description, details
                         FROM issues
                         WHERE date = ? AND connection_key = ?
                         ORDER BY timestamp
-                    """, (today, row["connection_key"]))
+                    """,
+                        (today, row["connection_key"]),
+                    )
 
                     issues = [
                         {
                             "timestamp": r["timestamp"],
                             "issue_type": r["issue_type"],
                             "description": r["description"],
-                            "details": json.loads(r["details"]) if r["details"] else {}
+                            "details": json.loads(r["details"]) if r["details"] else {},
                         }
                         for r in issues_cursor
                     ]
@@ -426,7 +458,7 @@ class SQLiteStore:
                         bytes_recv=row["bytes_recv"],
                         peak_upload=row["peak_upload"],
                         peak_download=row["peak_download"],
-                        issues=issues
+                        issues=issues,
                     )
         except sqlite3.Error as e:
             logger.error(f"Failed to get all connections: {e}")
@@ -439,12 +471,15 @@ class SQLiteStore:
 
         try:
             with self._connection() as conn:
-                cursor = conn.execute("""
+                cursor = conn.execute(
+                    """
                     SELECT COALESCE(SUM(bytes_sent), 0) as total_sent,
                            COALESCE(SUM(bytes_recv), 0) as total_recv
                     FROM traffic_stats
                     WHERE date = ?
-                """, (today,))
+                """,
+                    (today,),
+                )
                 row = cursor.fetchone()
                 return (row["total_sent"], row["total_recv"])
         except sqlite3.Error as e:
@@ -457,12 +492,15 @@ class SQLiteStore:
 
         try:
             with self._connection() as conn:
-                cursor = conn.execute("""
+                cursor = conn.execute(
+                    """
                     SELECT timestamp, issue_type, description, details, connection_key
                     FROM issues
                     WHERE date = ?
                     ORDER BY timestamp
-                """, (today,))
+                """,
+                    (today,),
+                )
 
                 return [
                     {
@@ -470,7 +508,7 @@ class SQLiteStore:
                         "issue_type": row["issue_type"],
                         "description": row["description"],
                         "details": json.loads(row["details"]) if row["details"] else {},
-                        "connection_key": row["connection_key"]
+                        "connection_key": row["connection_key"],
                     }
                     for row in cursor
                 ]
@@ -487,37 +525,46 @@ class SQLiteStore:
         try:
             with self._connection() as conn:
                 # Get all dates in range
-                cursor = conn.execute("""
+                cursor = conn.execute(
+                    """
                     SELECT DISTINCT date FROM traffic_stats
                     WHERE date >= date('now', ?)
                     ORDER BY date DESC
-                """, (f'-{days} days',))
+                """,
+                    (f"-{days} days",),
+                )
 
                 dates = [row["date"] for row in cursor]
 
                 for day in dates:
                     # Get stats for this day
-                    stats_cursor = conn.execute("""
+                    stats_cursor = conn.execute(
+                        """
                         SELECT connection_key, bytes_sent, bytes_recv, peak_upload, peak_download
                         FROM traffic_stats
                         WHERE date = ?
-                    """, (day,))
+                    """,
+                        (day,),
+                    )
 
                     day_data = {}
                     for row in stats_cursor:
                         # Get issues
-                        issues_cursor = conn.execute("""
+                        issues_cursor = conn.execute(
+                            """
                             SELECT timestamp, issue_type, description, details
                             FROM issues
                             WHERE date = ? AND connection_key = ?
-                        """, (day, row["connection_key"]))
+                        """,
+                            (day, row["connection_key"]),
+                        )
 
                         issues = [
                             {
                                 "timestamp": r["timestamp"],
                                 "issue_type": r["issue_type"],
                                 "description": r["description"],
-                                "details": json.loads(r["details"]) if r["details"] else {}
+                                "details": json.loads(r["details"]) if r["details"] else {},
                             }
                             for r in issues_cursor
                         ]
@@ -527,7 +574,7 @@ class SQLiteStore:
                             bytes_recv=row["bytes_recv"],
                             peak_upload=row["peak_upload"],
                             peak_download=row["peak_download"],
-                            issues=issues
+                            issues=issues,
                         )
 
                     result[day] = day_data
@@ -538,7 +585,7 @@ class SQLiteStore:
 
     def get_daily_totals(self, days: int = 7) -> List[Dict]:
         """Get daily totals for the past N days.
-        
+
         Returns list of {date, sent, recv, connections} dicts.
         """
         result = []
@@ -548,23 +595,28 @@ class SQLiteStore:
                 for i in range(days):
                     day = (date.today() - timedelta(days=i)).isoformat()
 
-                    cursor = conn.execute("""
+                    cursor = conn.execute(
+                        """
                         SELECT COALESCE(SUM(bytes_sent), 0) as total_sent,
                                COALESCE(SUM(bytes_recv), 0) as total_recv,
                                GROUP_CONCAT(connection_key) as connections
                         FROM traffic_stats
                         WHERE date = ?
-                    """, (day,))
+                    """,
+                        (day,),
+                    )
                     row = cursor.fetchone()
 
                     connections = row["connections"].split(",") if row["connections"] else []
 
-                    result.append({
-                        "date": day,
-                        "sent": row["total_sent"],
-                        "recv": row["total_recv"],
-                        "connections": connections
-                    })
+                    result.append(
+                        {
+                            "date": day,
+                            "sent": row["total_sent"],
+                            "recv": row["total_recv"],
+                            "connections": connections,
+                        }
+                    )
         except sqlite3.Error as e:
             logger.error(f"Failed to get daily totals: {e}")
             # Return empty results for requested days
@@ -576,59 +628,65 @@ class SQLiteStore:
 
     def get_weekly_totals(self) -> Dict:
         """Get totals for the past 7 days.
-        
+
         Returns {sent, recv, by_connection: {conn: {sent, recv}}}
         """
         return self._get_period_totals(7)
 
     def get_monthly_totals(self) -> Dict:
         """Get totals for the past 30 days.
-        
+
         Returns {sent, recv, by_connection: {conn: {sent, recv}}}
         """
         return self._get_period_totals(30)
 
     def _get_period_totals(self, days: int) -> Dict:
         """Get totals for a period.
-        
+
         Args:
             days: Number of days to include
-            
+
         Returns:
             Dict with sent, recv, and by_connection breakdown
         """
         try:
             with self._connection() as conn:
                 # Get overall totals
-                cursor = conn.execute("""
+                cursor = conn.execute(
+                    """
                     SELECT COALESCE(SUM(bytes_sent), 0) as total_sent,
                            COALESCE(SUM(bytes_recv), 0) as total_recv
                     FROM traffic_stats
                     WHERE date >= date('now', ?)
-                """, (f'-{days} days',))
+                """,
+                    (f"-{days} days",),
+                )
                 totals = cursor.fetchone()
 
                 # Get per-connection breakdown
                 by_connection = {}
-                cursor = conn.execute("""
+                cursor = conn.execute(
+                    """
                     SELECT connection_key,
                            SUM(bytes_sent) as sent,
                            SUM(bytes_recv) as recv
                     FROM traffic_stats
                     WHERE date >= date('now', ?)
                     GROUP BY connection_key
-                """, (f'-{days} days',))
+                """,
+                    (f"-{days} days",),
+                )
 
                 for row in cursor:
                     by_connection[row["connection_key"]] = {
                         "sent": row["sent"],
-                        "recv": row["recv"]
+                        "recv": row["recv"],
                     }
 
                 return {
                     "sent": totals["total_sent"],
                     "recv": totals["total_recv"],
-                    "by_connection": by_connection
+                    "by_connection": by_connection,
                 }
         except sqlite3.Error as e:
             logger.error(f"Failed to get period totals: {e}")
@@ -636,7 +694,7 @@ class SQLiteStore:
 
     def get_connection_history(self, connection_key: str, days: int = 30) -> List[Dict]:
         """Get daily stats for a specific connection.
-        
+
         Returns list of {date, sent, recv} dicts.
         """
         result = []
@@ -646,26 +704,21 @@ class SQLiteStore:
                 for i in range(days):
                     day = (date.today() - timedelta(days=i)).isoformat()
 
-                    cursor = conn.execute("""
+                    cursor = conn.execute(
+                        """
                         SELECT COALESCE(bytes_sent, 0) as sent,
                                COALESCE(bytes_recv, 0) as recv
                         FROM traffic_stats
                         WHERE date = ? AND connection_key = ?
-                    """, (day, connection_key))
+                    """,
+                        (day, connection_key),
+                    )
                     row = cursor.fetchone()
 
                     if row:
-                        result.append({
-                            "date": day,
-                            "sent": row["sent"],
-                            "recv": row["recv"]
-                        })
+                        result.append({"date": day, "sent": row["sent"], "recv": row["recv"]})
                     else:
-                        result.append({
-                            "date": day,
-                            "sent": 0,
-                            "recv": 0
-                        })
+                        result.append({"date": day, "sent": 0, "recv": 0})
         except sqlite3.Error as e:
             logger.error(f"Failed to get connection history: {e}")
             for i in range(days):
@@ -692,10 +745,10 @@ class SQLiteStore:
 
     def cleanup_old_data(self, keep_days: int = None) -> int:
         """Remove data older than specified days.
-        
+
         Args:
             keep_days: Number of days to retain. Defaults to STORAGE.RETENTION_DAYS
-            
+
         Returns:
             Number of records deleted
         """
@@ -707,15 +760,11 @@ class SQLiteStore:
             try:
                 with self._connection() as conn:
                     # Delete old traffic stats
-                    cursor = conn.execute(
-                        "DELETE FROM traffic_stats WHERE date < ?", (cutoff,)
-                    )
+                    cursor = conn.execute("DELETE FROM traffic_stats WHERE date < ?", (cutoff,))
                     stats_deleted = cursor.rowcount
 
                     # Delete old issues
-                    cursor = conn.execute(
-                        "DELETE FROM issues WHERE date < ?", (cutoff,)
-                    )
+                    cursor = conn.execute("DELETE FROM issues WHERE date < ?", (cutoff,))
                     issues_deleted = cursor.rowcount
 
                     total_deleted = stats_deleted + issues_deleted
@@ -736,7 +785,7 @@ class SQLiteStore:
 
     def flush(self) -> None:
         """Ensure all data is written to disk.
-        
+
         SQLite with WAL mode generally handles this automatically,
         but this provides explicit synchronization.
         """
@@ -749,7 +798,7 @@ class SQLiteStore:
 
     def close(self) -> None:
         """Close the database connection.
-        
+
         For SQLite, this is equivalent to flush() since connections
         are managed via context managers. Provided for compatibility
         with test fixtures and other code that expects a close() method.
@@ -761,11 +810,11 @@ class SQLiteStore:
 
     def backup(self, backup_path: Optional[Path] = None) -> Path:
         """Create a backup of the database.
-        
+
         Args:
             backup_path: Optional custom backup path. If not provided,
                         creates backup in data_dir with timestamp.
-                        
+
         Returns:
             Path to the backup file
         """
@@ -792,10 +841,10 @@ class SQLiteStore:
 
     def restore(self, backup_path: Path) -> None:
         """Restore database from a backup.
-        
+
         Args:
             backup_path: Path to the backup file to restore
-            
+
         Warning: This will replace all current data!
         """
         backup_path = Path(backup_path)
@@ -811,7 +860,7 @@ class SQLiteStore:
                 test_conn.close()
 
                 # Create a backup of current database
-                current_backup = self.db_path.with_suffix('.db.pre-restore')
+                current_backup = self.db_path.with_suffix(".db.pre-restore")
                 if self.db_path.exists():
                     shutil.copy2(self.db_path, current_backup)
 
@@ -836,11 +885,11 @@ class SQLiteStore:
 
     def export_json(self, output_path: Optional[Path] = None, days: int = 90) -> Path:
         """Export database to JSON format.
-        
+
         Args:
             output_path: Optional custom output path
             days: Number of days of history to export
-            
+
         Returns:
             Path to the exported JSON file
         """
@@ -856,18 +905,21 @@ class SQLiteStore:
                 "schema_version": SCHEMA_VERSION,
                 "traffic_stats": {},
                 "issues": [],
-                "devices": []
+                "devices": [],
             }
 
             with self._connection() as conn:
                 # Export traffic stats
-                cursor = conn.execute("""
+                cursor = conn.execute(
+                    """
                     SELECT date, connection_key, bytes_sent, bytes_recv, 
                            peak_upload, peak_download
                     FROM traffic_stats
                     WHERE date >= date('now', ?)
                     ORDER BY date, connection_key
-                """, (f'-{days} days',))
+                """,
+                    (f"-{days} days",),
+                )
 
                 for row in cursor:
                     date_key = row["date"]
@@ -878,40 +930,47 @@ class SQLiteStore:
                         "bytes_sent": row["bytes_sent"],
                         "bytes_recv": row["bytes_recv"],
                         "peak_upload": row["peak_upload"],
-                        "peak_download": row["peak_download"]
+                        "peak_download": row["peak_download"],
                     }
 
                 # Export issues
-                cursor = conn.execute("""
+                cursor = conn.execute(
+                    """
                     SELECT date, connection_key, timestamp, issue_type, 
                            description, details
                     FROM issues
                     WHERE date >= date('now', ?)
                     ORDER BY timestamp
-                """, (f'-{days} days',))
+                """,
+                    (f"-{days} days",),
+                )
 
                 for row in cursor:
-                    export_data["issues"].append({
-                        "date": row["date"],
-                        "connection_key": row["connection_key"],
-                        "timestamp": row["timestamp"],
-                        "issue_type": row["issue_type"],
-                        "description": row["description"],
-                        "details": json.loads(row["details"]) if row["details"] else {}
-                    })
+                    export_data["issues"].append(
+                        {
+                            "date": row["date"],
+                            "connection_key": row["connection_key"],
+                            "timestamp": row["timestamp"],
+                            "issue_type": row["issue_type"],
+                            "description": row["description"],
+                            "details": json.loads(row["details"]) if row["details"] else {},
+                        }
+                    )
 
                 # Export devices
-                cursor = conn.execute("""
+                cursor = conn.execute(
+                    """
                     SELECT mac_address, custom_name, hostname, vendor, 
                            device_type, model_hint, os_hint, first_seen, 
                            last_seen, last_ip
                     FROM devices
-                """)
+                """
+                )
 
                 for row in cursor:
                     export_data["devices"].append(dict(row))
 
-            with open(output_path, 'w') as f:
+            with open(output_path, "w") as f:
                 json.dump(export_data, f, indent=2)
 
             logger.info(f"Data exported to {output_path}")
@@ -922,10 +981,10 @@ class SQLiteStore:
 
     def import_json(self, input_path: Path) -> int:
         """Import data from JSON file.
-        
+
         Args:
             input_path: Path to JSON file to import
-            
+
         Returns:
             Number of records imported
         """
@@ -947,57 +1006,67 @@ class SQLiteStore:
                     # Import traffic stats
                     for date_key, day_data in import_data.get("traffic_stats", {}).items():
                         for conn_key, stats in day_data.items():
-                            conn.execute("""
+                            conn.execute(
+                                """
                                     INSERT OR REPLACE INTO traffic_stats
                                     (date, connection_key, bytes_sent, bytes_recv, 
                                      peak_upload, peak_download)
                                     VALUES (?, ?, ?, ?, ?, ?)
-                                """, (
-                                date_key, conn_key,
-                                stats.get("bytes_sent", 0),
-                                stats.get("bytes_recv", 0),
-                                stats.get("peak_upload", 0),
-                                stats.get("peak_download", 0)
-                            ))
+                                """,
+                                (
+                                    date_key,
+                                    conn_key,
+                                    stats.get("bytes_sent", 0),
+                                    stats.get("bytes_recv", 0),
+                                    stats.get("peak_upload", 0),
+                                    stats.get("peak_download", 0),
+                                ),
+                            )
                             imported += 1
 
                     # Import issues
                     for issue in import_data.get("issues", []):
-                        conn.execute("""
+                        conn.execute(
+                            """
                                 INSERT INTO issues
                                 (date, connection_key, timestamp, issue_type, 
                                  description, details)
                                 VALUES (?, ?, ?, ?, ?, ?)
-                            """, (
-                            issue.get("date", ""),
-                            issue.get("connection_key", ""),
-                            issue.get("timestamp", ""),
-                            issue.get("issue_type", "unknown"),
-                            issue.get("description", ""),
-                            json.dumps(issue.get("details", {}))
-                        ))
+                            """,
+                            (
+                                issue.get("date", ""),
+                                issue.get("connection_key", ""),
+                                issue.get("timestamp", ""),
+                                issue.get("issue_type", "unknown"),
+                                issue.get("description", ""),
+                                json.dumps(issue.get("details", {})),
+                            ),
+                        )
                         imported += 1
 
                     # Import devices
                     for device in import_data.get("devices", []):
-                        conn.execute("""
+                        conn.execute(
+                            """
                                 INSERT OR REPLACE INTO devices
                                 (mac_address, custom_name, hostname, vendor,
                                  device_type, model_hint, os_hint, first_seen,
                                  last_seen, last_ip)
                                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                            """, (
-                            device.get("mac_address"),
-                            device.get("custom_name"),
-                            device.get("hostname"),
-                            device.get("vendor"),
-                            device.get("device_type"),
-                            device.get("model_hint"),
-                            device.get("os_hint"),
-                            device.get("first_seen"),
-                            device.get("last_seen"),
-                            device.get("last_ip")
-                        ))
+                            """,
+                            (
+                                device.get("mac_address"),
+                                device.get("custom_name"),
+                                device.get("hostname"),
+                                device.get("vendor"),
+                                device.get("device_type"),
+                                device.get("model_hint"),
+                                device.get("os_hint"),
+                                device.get("first_seen"),
+                                device.get("last_seen"),
+                                device.get("last_ip"),
+                            ),
+                        )
                         imported += 1
 
                     conn.execute("COMMIT")
@@ -1017,18 +1086,27 @@ class SQLiteStore:
     # === Device Management Methods ===
 
     # Whitelist of valid device table columns to prevent SQL injection
-    _DEVICE_COLUMNS = frozenset({
-        'custom_name', 'hostname', 'vendor', 'device_type',
-        'model_hint', 'os_hint', 'first_seen', 'last_seen', 'last_ip'
-    })
+    _DEVICE_COLUMNS = frozenset(
+        {
+            "custom_name",
+            "hostname",
+            "vendor",
+            "device_type",
+            "model_hint",
+            "os_hint",
+            "first_seen",
+            "last_seen",
+            "last_ip",
+        }
+    )
 
     def save_device(self, mac_address: str, **kwargs) -> None:
         """Save or update a device record.
-        
+
         Args:
             mac_address: Device MAC address (primary key)
             **kwargs: Device attributes to update (must be valid column names)
-        
+
         Raises:
             ValueError: If an invalid column name is provided
         """
@@ -1043,8 +1121,7 @@ class SQLiteStore:
                 with self._connection() as conn:
                     # Check if device exists
                     cursor = conn.execute(
-                        "SELECT 1 FROM devices WHERE mac_address = ?",
-                        (mac_address,)
+                        "SELECT 1 FROM devices WHERE mac_address = ?", (mac_address,)
                     )
                     exists = cursor.fetchone() is not None
 
@@ -1062,7 +1139,7 @@ class SQLiteStore:
                             values.append(mac_address)
                             conn.execute(
                                 f"UPDATE devices SET {', '.join(updates)} WHERE mac_address = ?",  # nosec B608
-                                values
+                                values,
                             )
                     else:
                         # Insert new device - column names validated above
@@ -1072,7 +1149,7 @@ class SQLiteStore:
 
                         conn.execute(
                             f"INSERT INTO devices ({', '.join(columns)}) VALUES ({', '.join(placeholders)})",  # nosec B608
-                            values
+                            values,
                         )
             except sqlite3.Error as e:
                 logger.error(f"Failed to save device: {e}")
@@ -1081,10 +1158,7 @@ class SQLiteStore:
         """Get a device record by MAC address."""
         try:
             with self._connection() as conn:
-                cursor = conn.execute(
-                    "SELECT * FROM devices WHERE mac_address = ?",
-                    (mac_address,)
-                )
+                cursor = conn.execute("SELECT * FROM devices WHERE mac_address = ?", (mac_address,))
                 row = cursor.fetchone()
                 return dict(row) if row else None
         except sqlite3.Error as e:
@@ -1109,28 +1183,24 @@ class SQLiteStore:
 
     def get_database_stats(self) -> Dict:
         """Get statistics about the database.
-        
+
         Returns:
             Dict with record counts, date range, and file size
         """
         try:
             with self._connection() as conn:
                 # Count records
-                stats_count = conn.execute(
-                    "SELECT COUNT(*) FROM traffic_stats"
-                ).fetchone()[0]
-                issues_count = conn.execute(
-                    "SELECT COUNT(*) FROM issues"
-                ).fetchone()[0]
-                devices_count = conn.execute(
-                    "SELECT COUNT(*) FROM devices"
-                ).fetchone()[0]
+                stats_count = conn.execute("SELECT COUNT(*) FROM traffic_stats").fetchone()[0]
+                issues_count = conn.execute("SELECT COUNT(*) FROM issues").fetchone()[0]
+                devices_count = conn.execute("SELECT COUNT(*) FROM devices").fetchone()[0]
 
                 # Get date range
-                date_range = conn.execute("""
+                date_range = conn.execute(
+                    """
                     SELECT MIN(date) as oldest, MAX(date) as newest
                     FROM traffic_stats
-                """).fetchone()
+                """
+                ).fetchone()
 
             # Get file size
             file_size = self.db_path.stat().st_size if self.db_path.exists() else 0
@@ -1142,7 +1212,7 @@ class SQLiteStore:
                 "oldest_date": date_range["oldest"],
                 "newest_date": date_range["newest"],
                 "file_size_bytes": file_size,
-                "file_size_mb": round(file_size / (1024 * 1024), 2)
+                "file_size_mb": round(file_size / (1024 * 1024), 2),
             }
         except sqlite3.Error as e:
             logger.error(f"Failed to get database stats: {e}")

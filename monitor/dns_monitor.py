@@ -2,19 +2,20 @@
 
 Tracks DNS resolution times and alerts on slow DNS.
 """
+
 import socket
 import time
 from collections import deque
-from typing import List, Optional
+from typing import Optional
 
-from config import INTERVALS, NETWORK, THRESHOLDS, get_logger
+from config import NETWORK, THRESHOLDS, get_logger
 
 logger = get_logger(__name__)
 
 
 class DNSMonitor:
     """Monitors DNS resolution performance.
-    
+
     Tracks DNS lookup times for common domains and alerts when
     DNS performance degrades.
     """
@@ -37,41 +38,41 @@ class DNSMonitor:
 
     def check_dns_performance(self, force: bool = False) -> Optional[float]:
         """Check DNS resolution performance.
-        
+
         Args:
             force: Force check even if interval hasn't elapsed
-            
+
         Returns:
             Average DNS latency in milliseconds, or None if check failed
         """
         current_time = time.time()
-        
+
         if not force and (current_time - self._last_check) < self._check_interval:
             return self.get_average_dns_latency()
-        
+
         self._last_check = current_time
-        
+
         latencies = []
         for domain in self.TEST_DOMAINS:
             latency = self._resolve_domain(domain)
             if latency is not None:
                 latencies.append(latency)
-        
+
         if not latencies:
             return None
-        
+
         avg_latency = sum(latencies) / len(latencies)
         self._latency_samples.append(avg_latency)
-        
+
         logger.debug(f"DNS check: {avg_latency:.1f}ms average")
         return avg_latency
 
     def _resolve_domain(self, domain: str) -> Optional[float]:
         """Resolve a domain name and measure the time.
-        
+
         Args:
             domain: Domain name to resolve
-            
+
         Returns:
             Resolution time in milliseconds, or None if failed
         """
@@ -86,7 +87,7 @@ class DNSMonitor:
 
     def get_average_dns_latency(self) -> Optional[float]:
         """Get average DNS latency from recent samples.
-        
+
         Returns:
             Average latency in milliseconds, or None if no samples
         """
@@ -96,7 +97,7 @@ class DNSMonitor:
 
     def get_current_dns_latency(self) -> Optional[float]:
         """Get the most recent DNS latency measurement.
-        
+
         Returns:
             Most recent latency in milliseconds, or None if no measurements
         """
@@ -106,7 +107,7 @@ class DNSMonitor:
 
     def is_dns_slow(self) -> bool:
         """Check if DNS is currently slow.
-        
+
         Returns:
             True if average DNS latency exceeds threshold
         """

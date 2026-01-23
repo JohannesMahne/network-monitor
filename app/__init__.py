@@ -6,6 +6,7 @@ Contains the main application components:
 - MenuAwareTimer: Timer that works during menu tracking
 - Views: UI components (icons, menus, dialogs)
 """
+
 from app.controller import AppController
 from app.dependencies import AppDependencies, create_dependencies
 from app.events import Event, EventBus, EventType

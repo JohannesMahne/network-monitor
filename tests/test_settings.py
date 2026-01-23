@@ -65,7 +65,7 @@ class TestConnectionBudget:
             "enabled": True,
             "limit_bytes": 5000000000,
             "period": "weekly",
-            "warn_at_percent": 90
+            "warn_at_percent": 90,
         }
         budget = ConnectionBudget.from_dict(data)
         assert budget.enabled is True
@@ -117,10 +117,7 @@ class TestSettingsManager:
     def test_set_and_get_budget(self, settings_manager):
         """Test setting and getting connection budget."""
         budget = ConnectionBudget(
-            enabled=True,
-            limit_bytes=10000000000,  # 10 GB
-            period="monthly",
-            warn_at_percent=80
+            enabled=True, limit_bytes=10000000000, period="monthly", warn_at_percent=80  # 10 GB
         )
         settings_manager.set_budget("WiFi:TestNetwork", budget)
 
@@ -165,9 +162,7 @@ class TestSettingsManager:
         settings_manager.set_budget("WiFi:TestNetwork", budget)
 
         status = settings_manager.check_budget_status(
-            "WiFi:TestNetwork",
-            current_usage=100000000,
-            period_usage=500000000  # 50% of limit
+            "WiFi:TestNetwork", current_usage=100000000, period_usage=500000000  # 50% of limit
         )
 
         assert status["has_budget"] is True
@@ -181,9 +176,7 @@ class TestSettingsManager:
         settings_manager.set_budget("WiFi:TestNetwork", budget)
 
         status = settings_manager.check_budget_status(
-            "WiFi:TestNetwork",
-            current_usage=0,
-            period_usage=850000000  # 85% of limit
+            "WiFi:TestNetwork", current_usage=0, period_usage=850000000  # 85% of limit
         )
 
         assert status["warning"] is True
@@ -195,9 +188,7 @@ class TestSettingsManager:
         settings_manager.set_budget("WiFi:TestNetwork", budget)
 
         status = settings_manager.check_budget_status(
-            "WiFi:TestNetwork",
-            current_usage=0,
-            period_usage=1500000000  # 150% of limit
+            "WiFi:TestNetwork", current_usage=0, period_usage=1500000000  # 150% of limit
         )
 
         assert status["exceeded"] is True

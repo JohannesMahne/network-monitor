@@ -5,10 +5,11 @@ in unit tests without requiring actual system access.
 
 Usage:
     from tests.mocks import MockNetworkStats, MockConnectionDetector
-    
+
     stats = MockNetworkStats()
     stats.set_speeds(upload=1000, download=5000)
 """
+
 import tempfile
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -17,9 +18,11 @@ from typing import Any, Dict, List, Optional, Tuple
 
 # === Mock Data Classes ===
 
+
 @dataclass
 class MockSpeedStats:
     """Mock speed statistics."""
+
     upload_speed: float = 0
     download_speed: float = 0
     total_sent: int = 0
@@ -29,6 +32,7 @@ class MockSpeedStats:
 @dataclass
 class MockConnectionInfo:
     """Mock connection information."""
+
     connection_type: str = "WiFi"
     name: str = "TestNetwork"
     interface: str = "en0"
@@ -39,6 +43,7 @@ class MockConnectionInfo:
 @dataclass
 class MockNetworkDevice:
     """Mock network device."""
+
     ip_address: str = "192.168.1.1"
     mac_address: str = "00:11:22:33:44:55"
     hostname: Optional[str] = None
@@ -59,19 +64,21 @@ class MockNetworkDevice:
 @dataclass
 class MockNetworkIssue:
     """Mock network issue."""
+
     timestamp: datetime = field(default_factory=datetime.now)
     issue_type: str = "test"
     description: str = "Test issue"
 
     def to_dict(self) -> dict:
         return {
-            'timestamp': self.timestamp.isoformat(),
-            'type': self.issue_type,
-            'description': self.description,
+            "timestamp": self.timestamp.isoformat(),
+            "type": self.issue_type,
+            "description": self.description,
         }
 
 
 # === Mock Components ===
+
 
 class MockNetworkStats:
     """Mock NetworkStats for testing."""
@@ -135,8 +142,13 @@ class MockConnectionDetector:
         self._connection = MockConnectionInfo()
         self._connection_key = "WiFi:TestNetwork"
 
-    def set_connection(self, conn_type: str = "WiFi", name: str = "TestNetwork",
-                       is_connected: bool = True, ip: str = "192.168.1.100") -> None:
+    def set_connection(
+        self,
+        conn_type: str = "WiFi",
+        name: str = "TestNetwork",
+        is_connected: bool = True,
+        ip: str = "192.168.1.100",
+    ) -> None:
         """Set mock connection state."""
         self._connection = MockConnectionInfo(
             connection_type=conn_type,
@@ -169,10 +181,12 @@ class MockIssueDetector:
 
     def add_issue(self, description: str, issue_type: str = "test") -> None:
         """Add a mock issue."""
-        self._issues.append(MockNetworkIssue(
-            description=description,
-            issue_type=issue_type,
-        ))
+        self._issues.append(
+            MockNetworkIssue(
+                description=description,
+                issue_type=issue_type,
+            )
+        )
 
     def check_connectivity(self, is_connected: bool) -> None:
         pass
@@ -184,10 +198,12 @@ class MockIssueDetector:
         pass
 
     def log_connection_change(self, old: str, new: str) -> None:
-        self._issues.append(MockNetworkIssue(
-            description=f"Connection changed: {old} → {new}",
-            issue_type="connection_change",
-        ))
+        self._issues.append(
+            MockNetworkIssue(
+                description=f"Connection changed: {old} → {new}",
+                issue_type="connection_change",
+            )
+        )
 
     def get_current_latency(self) -> Optional[float]:
         return self._latency
@@ -206,8 +222,9 @@ class MockNetworkScanner:
         self._devices: List[MockNetworkDevice] = []
         self._names: Dict[str, str] = {}
 
-    def add_device(self, ip: str, mac: str, vendor: str = None,
-                   is_online: bool = True) -> MockNetworkDevice:
+    def add_device(
+        self, ip: str, mac: str, vendor: str = None, is_online: bool = True
+    ) -> MockNetworkDevice:
         """Add a mock device."""
         device = MockNetworkDevice(
             ip_address=ip,
@@ -247,8 +264,9 @@ class MockTrafficMonitor:
     def __init__(self):
         self._processes: List[Tuple[str, int, int, int]] = []
 
-    def add_process(self, name: str, bytes_in: int = 0, bytes_out: int = 0,
-                    connections: int = 1) -> None:
+    def add_process(
+        self, name: str, bytes_in: int = 0, bytes_out: int = 0, connections: int = 1
+    ) -> None:
         """Add a mock process."""
         self._processes.append((name, bytes_in, bytes_out, connections))
 
@@ -265,42 +283,43 @@ class MockJsonStore:
     def __init__(self, data_dir: Optional[Path] = None):
         self.data_dir = data_dir or Path(tempfile.gettempdir()) / "mock_netmon"
         self._data: Dict[str, Dict[str, Any]] = {}
-        self._today_key = datetime.now().strftime('%Y-%m-%d')
+        self._today_key = datetime.now().strftime("%Y-%m-%d")
 
-    def update_stats(self, conn_key: str, sent: int, recv: int,
-                     peak_up: float = 0, peak_down: float = 0) -> None:
+    def update_stats(
+        self, conn_key: str, sent: int, recv: int, peak_up: float = 0, peak_down: float = 0
+    ) -> None:
         if self._today_key not in self._data:
             self._data[self._today_key] = {}
         if conn_key not in self._data[self._today_key]:
             self._data[self._today_key][conn_key] = {
-                'bytes_sent': 0,
-                'bytes_recv': 0,
-                'peak_upload': 0,
-                'peak_download': 0,
-                'issues': [],
+                "bytes_sent": 0,
+                "bytes_recv": 0,
+                "peak_upload": 0,
+                "peak_download": 0,
+                "issues": [],
             }
         # Add to existing values (accumulate deltas, don't replace)
         stats = self._data[self._today_key][conn_key]
-        stats['bytes_sent'] += sent
-        stats['bytes_recv'] += recv
-        stats['peak_upload'] = max(stats['peak_upload'], peak_up)
-        stats['peak_download'] = max(stats['peak_download'], peak_down)
+        stats["bytes_sent"] += sent
+        stats["bytes_recv"] += recv
+        stats["peak_upload"] = max(stats["peak_upload"], peak_up)
+        stats["peak_download"] = max(stats["peak_download"], peak_down)
 
     def get_today_totals(self) -> Tuple[int, int]:
         if self._today_key not in self._data:
             return 0, 0
-        total_sent = sum(c.get('bytes_sent', 0) for c in self._data[self._today_key].values())
-        total_recv = sum(c.get('bytes_recv', 0) for c in self._data[self._today_key].values())
+        total_sent = sum(c.get("bytes_sent", 0) for c in self._data[self._today_key].values())
+        total_recv = sum(c.get("bytes_recv", 0) for c in self._data[self._today_key].values())
         return total_sent, total_recv
 
     def get_weekly_totals(self) -> Dict:
-        return {'sent': 1000000, 'recv': 5000000, 'by_connection': {}}
+        return {"sent": 1000000, "recv": 5000000, "by_connection": {}}
 
     def get_monthly_totals(self) -> Dict:
-        return {'sent': 10000000, 'recv': 50000000, 'by_connection': {}}
+        return {"sent": 10000000, "recv": 50000000, "by_connection": {}}
 
     def get_daily_totals(self, days: int = 7) -> List[Dict]:
-        return [{'date': self._today_key, 'sent': 0, 'recv': 0, 'connections': []}]
+        return [{"date": self._today_key, "sent": 0, "recv": 0, "connections": []}]
 
     def get_connection_history(self, conn_key: str, days: int = 30) -> List[Dict]:
         return []
@@ -361,10 +380,10 @@ class MockSettingsManager:
 
     def check_budget_status(self, conn_key: str, current: int, period: int) -> Dict:
         return {
-            'has_budget': False,
-            'exceeded': False,
-            'warning': False,
-            'percent_used': 0,
+            "has_budget": False,
+            "exceeded": False,
+            "warning": False,
+            "percent_used": 0,
         }
 
 

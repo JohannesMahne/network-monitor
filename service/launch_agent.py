@@ -1,4 +1,5 @@
 """macOS Launch Agent management for auto-start at login."""
+
 import plistlib
 import subprocess
 from pathlib import Path
@@ -41,18 +42,13 @@ class LaunchAgentManager:
         data_dir = Path.home() / STORAGE.DATA_DIR_NAME
         return {
             "Label": self.AGENT_LABEL,
-            "ProgramArguments": [
-                self.python_path,
-                str(self.script_path)
-            ],
+            "ProgramArguments": [self.python_path, str(self.script_path)],
             "WorkingDirectory": str(self.app_dir),
             "RunAtLoad": True,
             "KeepAlive": False,
             "StandardOutPath": str(data_dir / STORAGE.STDOUT_LOG),
             "StandardErrorPath": str(data_dir / STORAGE.STDERR_LOG),
-            "EnvironmentVariables": {
-                "PATH": "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
-            }
+            "EnvironmentVariables": {"PATH": "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"},
         }
 
     def is_enabled(self) -> bool:
@@ -63,9 +59,7 @@ class LaunchAgentManager:
         """Check if the launch agent is currently loaded."""
         try:
             result = subprocess.run(
-                ["launchctl", "list", self.AGENT_LABEL],
-                capture_output=True,
-                text=True
+                ["launchctl", "list", self.AGENT_LABEL], capture_output=True, text=True
             )
             return result.returncode == 0
         except Exception:
@@ -73,7 +67,7 @@ class LaunchAgentManager:
 
     def enable(self) -> tuple[bool, str]:
         """Enable Launch at Login.
-        
+
         Returns (success, message) tuple.
         """
         try:
@@ -87,7 +81,7 @@ class LaunchAgentManager:
             # Create the plist file
             plist_content = self._create_plist_content()
 
-            with open(self.agent_path, 'wb') as f:
+            with open(self.agent_path, "wb") as f:
                 plistlib.dump(plist_content, f)
 
             # Load the agent (so it takes effect immediately for future logins)
@@ -105,16 +99,13 @@ class LaunchAgentManager:
 
     def disable(self) -> tuple[bool, str]:
         """Disable Launch at Login.
-        
+
         Returns (success, message) tuple.
         """
         try:
             # Unload the agent if loaded
             if self.is_loaded():
-                subprocess.run(
-                    ["launchctl", "unload", str(self.agent_path)],
-                    capture_output=True
-                )
+                subprocess.run(["launchctl", "unload", str(self.agent_path)], capture_output=True)
 
             # Remove the plist file
             if self.agent_path.exists():
@@ -132,7 +123,7 @@ class LaunchAgentManager:
 
     def toggle(self) -> tuple[bool, str]:
         """Toggle Launch at Login on/off.
-        
+
         Returns (success, message) tuple.
         """
         if self.is_enabled():

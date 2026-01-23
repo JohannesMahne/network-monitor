@@ -5,11 +5,12 @@ All icons are cached to reduce CPU usage.
 
 Usage:
     from app.views.icons import IconGenerator
-    
+
     icons = IconGenerator()
     path = icons.create_gauge("green")
     sparkline_path = icons.create_sparkline([1, 2, 3, 4, 5], "#007AFF")
 """
+
 import hashlib
 import math
 import tempfile
@@ -25,7 +26,7 @@ logger = get_logger(__name__)
 
 class IconGenerator:
     """Generates and caches icons for the menu bar application.
-    
+
     Maintains a cache of generated icons to avoid regenerating
     the same icon multiple times.
     """
@@ -41,32 +42,32 @@ class IconGenerator:
     def _get_color_rgba(self, color: str) -> Tuple[int, int, int, int]:
         """Get RGBA tuple for a color name."""
         color_map = {
-            'green': COLORS.GREEN_RGBA,
-            'yellow': COLORS.YELLOW_RGBA,
-            'red': COLORS.RED_RGBA,
-            'gray': COLORS.GRAY_RGBA,
-            'blue': COLORS.BLUE_RGBA,
+            "green": COLORS.GREEN_RGBA,
+            "yellow": COLORS.YELLOW_RGBA,
+            "red": COLORS.RED_RGBA,
+            "gray": COLORS.GRAY_RGBA,
+            "blue": COLORS.BLUE_RGBA,
         }
         return color_map.get(color, COLORS.GRAY_RGBA)
 
     def _get_color_hex(self, color: str) -> str:
         """Get hex color string for a color name."""
         color_map = {
-            'green': COLORS.GREEN_HEX,
-            'yellow': COLORS.YELLOW_HEX,
-            'red': COLORS.RED_HEX,
-            'gray': COLORS.GRAY_HEX,
-            'blue': COLORS.BLUE_HEX,
+            "green": COLORS.GREEN_HEX,
+            "yellow": COLORS.YELLOW_HEX,
+            "red": COLORS.RED_HEX,
+            "gray": COLORS.GRAY_HEX,
+            "blue": COLORS.BLUE_HEX,
         }
         return color_map.get(color, COLORS.GRAY_HEX)
 
     def create_status_icon(self, color: str, size: int = None) -> str:
         """Create a colored circle icon for status display.
-        
+
         Args:
             color: Color name ('green', 'yellow', 'red', 'gray').
             size: Icon size in pixels (default from UI config).
-        
+
         Returns:
             Path to the generated PNG file.
         """
@@ -76,33 +77,30 @@ class IconGenerator:
         if cache_key in self._cache:
             return self._cache[cache_key]
 
-        img = Image.new('RGBA', (size, size), (0, 0, 0, 0))
+        img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
         draw = ImageDraw.Draw(img)
 
         fill_color = self._get_color_rgba(color)
 
         # Draw filled circle with slight padding
         padding = 2
-        draw.ellipse(
-            [padding, padding, size - padding, size - padding],
-            fill=fill_color
-        )
+        draw.ellipse([padding, padding, size - padding, size - padding], fill=fill_color)
 
-        icon_path = self._temp_dir / f'status_{color}_{size}.png'
-        img.save(icon_path, 'PNG')
+        icon_path = self._temp_dir / f"status_{color}_{size}.png"
+        img.save(icon_path, "PNG")
 
         self._cache[cache_key] = str(icon_path)
         return str(icon_path)
 
     def create_gauge_icon(self, color: str, size: int = None) -> str:
         """Create a gauge/speedometer icon colored by status.
-        
+
         The gauge needle points right for good, up for OK, left for poor.
-        
+
         Args:
             color: Color name ('green', 'yellow', 'red', 'gray').
             size: Icon size in pixels (default from UI config).
-        
+
         Returns:
             Path to the generated PNG file.
         """
@@ -115,7 +113,7 @@ class IconGenerator:
         fill_color = self._get_color_hex(color)
 
         # Create image with transparency
-        img = Image.new('RGBA', (size, size), (0, 0, 0, 0))
+        img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
         draw = ImageDraw.Draw(img)
 
         # Draw gauge arc (speedometer shape)
@@ -147,11 +145,11 @@ class IconGenerator:
         dot_r = 2
         draw.ellipse(
             [center_x - dot_r, center_y - dot_r, center_x + dot_r, center_y + dot_r],
-            fill=fill_color
+            fill=fill_color,
         )
 
-        icon_path = self._temp_dir / f'gauge_{color}_{size}.png'
-        img.save(str(icon_path), 'PNG')
+        icon_path = self._temp_dir / f"gauge_{color}_{size}.png"
+        img.save(str(icon_path), "PNG")
 
         self._cache[cache_key] = str(icon_path)
         return str(icon_path)
@@ -162,17 +160,17 @@ class IconGenerator:
         color: str = None,
         width: int = None,
         height: int = None,
-        use_matplotlib: bool = True
+        use_matplotlib: bool = True,
     ) -> str:
         """Create a sparkline graph image.
-        
+
         Args:
             values: List of numeric values to plot.
             color: Hex color string (e.g., '#007AFF') or color name.
             width: Image width in pixels.
             height: Image height in pixels.
             use_matplotlib: If True, use matplotlib for smoother lines.
-        
+
         Returns:
             Path to the generated PNG file.
         """
@@ -182,7 +180,7 @@ class IconGenerator:
         # Resolve color
         if color is None:
             color = COLORS.BLUE_HEX
-        elif not color.startswith('#'):
+        elif not color.startswith("#"):
             color = self._get_color_hex(color)
 
         # Create cache key from values hash
@@ -202,18 +200,13 @@ class IconGenerator:
         return path
 
     def _create_sparkline_pil(
-        self,
-        values: List[float],
-        color: str,
-        width: int,
-        height: int,
-        cache_key: str
+        self, values: List[float], color: str, width: int, height: int, cache_key: str
     ) -> str:
         """Create sparkline using PIL only (faster, simpler)."""
         if not values or len(values) < 2:
             values = [0, 0]
 
-        img = Image.new('RGBA', (width, height), (0, 0, 0, 0))
+        img = Image.new("RGBA", (width, height), (0, 0, 0, 0))
         draw = ImageDraw.Draw(img)
 
         # Normalize values
@@ -223,8 +216,8 @@ class IconGenerator:
             max_val = min_val + 1
 
         # Convert hex color to RGB
-        hex_color = color.lstrip('#')
-        rgb = tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
+        hex_color = color.lstrip("#")
+        rgb = tuple(int(hex_color[i : i + 2], 16) for i in (0, 2, 4))
 
         # Calculate points
         points = []
@@ -240,24 +233,20 @@ class IconGenerator:
         # Draw end dot
         if points:
             x, y = points[-1]
-            draw.ellipse([x-2, y-2, x+2, y+2], fill=rgb + (255,))
+            draw.ellipse([x - 2, y - 2, x + 2, y + 2], fill=rgb + (255,))
 
-        img_path = self._sparkline_dir / f'{cache_key}.png'
-        img.save(img_path, 'PNG')
+        img_path = self._sparkline_dir / f"{cache_key}.png"
+        img.save(img_path, "PNG")
 
         return str(img_path)
 
     def _create_sparkline_matplotlib(
-        self,
-        values: List[float],
-        color: str,
-        width: int,
-        height: int,
-        cache_key: str
+        self, values: List[float], color: str, width: int, height: int, cache_key: str
     ) -> str:
         """Create sparkline using matplotlib (smoother)."""
         import matplotlib
-        matplotlib.use('Agg')
+
+        matplotlib.use("Agg")
         import matplotlib.pyplot as plt
 
         if not values or len(values) < 2:
@@ -265,17 +254,17 @@ class IconGenerator:
 
         # Create figure with exact pixel dimensions
         dpi = 72
-        fig, ax = plt.subplots(figsize=(width/dpi, height/dpi), dpi=dpi)
+        fig, ax = plt.subplots(figsize=(width / dpi, height / dpi), dpi=dpi)
 
         # Plot the line - thin and smooth
-        ax.plot(values, color=color, linewidth=1.0, solid_capstyle='round')
+        ax.plot(values, color=color, linewidth=1.0, solid_capstyle="round")
 
         # Fill under the line with transparency
         ax.fill_between(range(len(values)), values, alpha=0.15, color=color)
 
         # Mark the last point
         if values:
-            ax.plot(len(values)-1, values[-1], 'o', color=color, markersize=2)
+            ax.plot(len(values) - 1, values[-1], "o", color=color, markersize=2)
 
         # Remove all axes and borders (pure sparkline)
         ax.set_xticks([])
@@ -287,7 +276,7 @@ class IconGenerator:
         ax.margins(x=0.02, y=0.1)
         plt.subplots_adjust(left=0, right=1, top=1, bottom=0)
 
-        img_path = self._sparkline_dir / f'{cache_key}.png'
+        img_path = self._sparkline_dir / f"{cache_key}.png"
         fig.savefig(img_path, transparent=True, dpi=dpi, pad_inches=0)
         plt.close(fig)
 
@@ -316,7 +305,7 @@ class IconGenerator:
         cutoff = time.time() - max_age
 
         try:
-            for file in self._sparkline_dir.glob('*.png'):
+            for file in self._sparkline_dir.glob("*.png"):
                 if file.stat().st_mtime < cutoff:
                     file.unlink()
                     # Also remove from cache

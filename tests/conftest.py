@@ -5,6 +5,7 @@ This module provides:
 - Pytest markers for test categorization (unit, integration, slow)
 - Deprecation warning filters
 """
+
 import json
 import sqlite3
 import tempfile
@@ -80,7 +81,7 @@ def sample_stats_data() -> dict[str, Any]:
                 "bytes_recv": 5000000,
                 "peak_upload": 100000,
                 "peak_download": 500000,
-                "issues": []
+                "issues": [],
             }
         }
     }

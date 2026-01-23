@@ -2,10 +2,11 @@
 
 Monitors per-app bandwidth usage and alerts when thresholds are exceeded.
 """
+
 import time
 from collections import deque
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Tuple
 
 from config import get_logger
 
@@ -15,6 +16,7 @@ logger = get_logger(__name__)
 @dataclass
 class BandwidthAlert:
     """Represents a bandwidth threshold alert."""
+
     app_name: str
     current_mbps: float
     threshold_mbps: float
@@ -25,6 +27,7 @@ class BandwidthAlert:
 @dataclass
 class BandwidthSample:
     """A single bandwidth sample for an app."""
+
     timestamp: float
     bytes_in: int
     bytes_out: int
@@ -32,7 +35,7 @@ class BandwidthSample:
 
 class BandwidthMonitor:
     """Monitors bandwidth usage per app and detects threshold violations.
-    
+
     Tracks bandwidth over time windows and compares against configurable
     per-app thresholds.
     """
@@ -49,18 +52,15 @@ class BandwidthMonitor:
         logger.debug("BandwidthMonitor initialized")
 
     def check_thresholds(
-        self,
-        process_traffic: List[tuple],
-        thresholds: Dict[str, float],
-        window_seconds: int = 30
+        self, process_traffic: List[tuple], thresholds: Dict[str, float], window_seconds: int = 30
     ) -> List[BandwidthAlert]:
         """Check if any apps exceed their bandwidth thresholds.
-        
+
         Args:
             process_traffic: List of (display_name, bytes_in, bytes_out, connections)
             thresholds: Dict mapping app_name -> threshold_mbps
             window_seconds: Time window for averaging bandwidth
-            
+
         Returns:
             List of BandwidthAlert objects for apps exceeding thresholds
         """
@@ -89,13 +89,9 @@ class BandwidthMonitor:
             prev_bytes_in, prev_bytes_out = self._previous_bytes.get(display_name, (0, 0))
             delta_in = max(0, bytes_in - prev_bytes_in)
             delta_out = max(0, bytes_out - prev_bytes_out)
-            
+
             # Store sample
-            sample = BandwidthSample(
-                timestamp=current_time,
-                bytes_in=delta_in,
-                bytes_out=delta_out
-            )
+            sample = BandwidthSample(timestamp=current_time, bytes_in=delta_in, bytes_out=delta_out)
             self._app_samples[display_name].append(sample)
             self._previous_bytes[display_name] = (bytes_in, bytes_out)
 
@@ -107,7 +103,7 @@ class BandwidthMonitor:
             # Calculate total bytes transferred and time span
             oldest_sample = samples[0]
             newest_sample = samples[-1]
-            
+
             time_delta = newest_sample.timestamp - oldest_sample.timestamp
             if time_delta < 1.0:  # Need at least 1 second of data
                 continue
@@ -129,7 +125,7 @@ class BandwidthMonitor:
                     current_mbps=avg_mbps,
                     threshold_mbps=threshold_mbps,
                     window_seconds=window_seconds,
-                    timestamp=current_time
+                    timestamp=current_time,
                 )
                 alerts.append(alert)
                 self._alerted_apps[display_name] = current_time

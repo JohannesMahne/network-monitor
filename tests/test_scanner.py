@@ -1,7 +1,6 @@
 """Tests for monitor/scanner.py"""
-from unittest.mock import patch
 
-import pytest
+
 
 from monitor.scanner import (
     DeviceNameStore,
@@ -63,25 +62,19 @@ class TestNetworkDevice:
 
     def test_display_name_with_custom_name(self):
         device = NetworkDevice(
-            ip_address="192.168.1.100",
-            mac_address="AA:BB:CC:DD:EE:FF",
-            custom_name="My iPhone"
+            ip_address="192.168.1.100", mac_address="AA:BB:CC:DD:EE:FF", custom_name="My iPhone"
         )
         assert device.display_name == "My iPhone"
 
     def test_display_name_with_mdns_name(self):
         device = NetworkDevice(
-            ip_address="192.168.1.100",
-            mac_address="AA:BB:CC:DD:EE:FF",
-            mdns_name="Johns-MacBook"
+            ip_address="192.168.1.100", mac_address="AA:BB:CC:DD:EE:FF", mdns_name="Johns-MacBook"
         )
         assert device.display_name == "Johns-MacBook"
 
     def test_display_name_with_model_hint(self):
         device = NetworkDevice(
-            ip_address="192.168.1.100",
-            mac_address="AA:BB:CC:DD:EE:FF",
-            model_hint="MacBook Pro"
+            ip_address="192.168.1.100", mac_address="AA:BB:CC:DD:EE:FF", model_hint="MacBook Pro"
         )
         assert device.display_name == "MacBook Pro"
 
@@ -89,30 +82,25 @@ class TestNetworkDevice:
         device = NetworkDevice(
             ip_address="192.168.1.100",
             mac_address="AA:BB:CC:DD:EE:FF",
-            hostname="johns-macbook.local"
+            hostname="johns-macbook.local",
         )
         assert device.display_name == "johns-macbook"
 
     def test_display_name_with_vendor(self):
         device = NetworkDevice(
-            ip_address="192.168.1.100",
-            mac_address="AA:BB:CC:DD:EE:FF",
-            vendor="Samsung"
+            ip_address="192.168.1.100", mac_address="AA:BB:CC:DD:EE:FF", vendor="Samsung"
         )
         assert device.display_name == "Samsung"
 
     def test_display_name_fallback_to_ip(self):
-        device = NetworkDevice(
-            ip_address="192.168.1.100",
-            mac_address="AA:BB:CC:DD:EE:FF"
-        )
+        device = NetworkDevice(ip_address="192.168.1.100", mac_address="AA:BB:CC:DD:EE:FF")
         assert device.display_name == "192.168.1.100"
 
     def test_type_icon(self):
         device = NetworkDevice(
             ip_address="192.168.1.100",
             mac_address="AA:BB:CC:DD:EE:FF",
-            device_type=DeviceType.PHONE
+            device_type=DeviceType.PHONE,
         )
         assert device.type_icon == "📱"
 
@@ -144,9 +132,7 @@ class TestInferDeviceType:
         assert dtype == DeviceType.ROUTER
 
     def test_service_based_inference(self):
-        dtype, os_hint, model = infer_device_type(
-            None, None, services=["_printer._tcp"]
-        )
+        dtype, os_hint, model = infer_device_type(None, None, services=["_printer._tcp"])
         assert dtype == DeviceType.PRINTER
 
     def test_roku_hostname(self):
@@ -214,14 +200,14 @@ class TestNetworkScanner:
         """Test setting and getting a device name."""
         scanner = NetworkScanner()
         mac = "FF:00:FF:00:FF:00"  # Use unique MAC
-        
+
         # Set name via scanner (which uses the name store)
         scanner.set_device_name(mac, "Test Device Sprint10")
-        
+
         # Now get it back
         name = scanner.get_device_name(mac)
         assert name == "Test Device Sprint10"
-        
+
         # Clean up - remove from store
         scanner._name_store._names.pop(mac, None)
 
@@ -229,7 +215,7 @@ class TestNetworkScanner:
         """Test getting all devices."""
         scanner = NetworkScanner()
         initial_count = len(scanner._devices)
-        
+
         scanner._devices["AA:BB:CC:DD:EE:01"] = NetworkDevice(
             ip_address="192.168.1.100",
             mac_address="AA:BB:CC:DD:EE:01",
@@ -238,14 +224,14 @@ class TestNetworkScanner:
             ip_address="192.168.1.101",
             mac_address="11:22:33:44:55:01",
         )
-        
+
         devices = scanner.get_all_devices()
         assert len(devices) >= initial_count + 2
 
     def test_get_online_devices(self):
         """Test getting only online devices."""
         scanner = NetworkScanner()
-        
+
         scanner._devices["AA:BB:CC:DD:EE:02"] = NetworkDevice(
             ip_address="192.168.1.100",
             mac_address="AA:BB:CC:DD:EE:02",
@@ -256,7 +242,7 @@ class TestNetworkScanner:
             mac_address="11:22:33:44:55:02",
             is_online=False,
         )
-        
+
         online = scanner.get_online_devices()
         # At least our online device should be there
         online_macs = [d.mac_address for d in online]
@@ -266,7 +252,7 @@ class TestNetworkScanner:
     def test_get_device_count(self):
         """Test getting device counts."""
         scanner = NetworkScanner()
-        
+
         scanner._devices["AA:BB:CC:DD:EE:03"] = NetworkDevice(
             ip_address="192.168.1.100",
             mac_address="AA:BB:CC:DD:EE:03",
@@ -277,7 +263,7 @@ class TestNetworkScanner:
             mac_address="11:22:33:44:55:03",
             is_online=False,
         )
-        
+
         online, total = scanner.get_device_count()
         assert total >= 2
         assert online >= 1
@@ -292,7 +278,7 @@ class TestNetworkScanner:
     def test_devices_returned_as_list(self):
         """Test that get_all_devices returns a list."""
         scanner = NetworkScanner()
-        
+
         scanner._devices["AA:AA:AA:AA:AA:04"] = NetworkDevice(
             ip_address="192.168.1.200",
             mac_address="AA:AA:AA:AA:AA:04",
@@ -301,7 +287,7 @@ class TestNetworkScanner:
             ip_address="192.168.1.50",
             mac_address="BB:BB:BB:BB:BB:04",
         )
-        
+
         devices = scanner.get_all_devices()
         assert isinstance(devices, list)
         # Should include our added devices

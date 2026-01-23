@@ -3,10 +3,11 @@
 Provides on-demand speed testing using HTTP downloads/uploads to measure
 actual network throughput.
 """
+
 import ssl
 import time
 from typing import Dict, Optional
-from urllib.request import urlopen, Request
+from urllib.request import Request, urlopen
 
 from config import get_logger
 
@@ -35,10 +36,10 @@ class SpeedTest:
 
     def run_test(self, duration_seconds: int = 10) -> Optional[Dict[str, float]]:
         """Run a speed test.
-        
+
         Args:
             duration_seconds: How long to run the test (download phase)
-            
+
         Returns:
             Dictionary with 'download_mbps', 'upload_mbps', and 'latency_ms'
             Returns None if test fails completely
@@ -50,28 +51,28 @@ class SpeedTest:
         self._running = True
         try:
             logger.info("Starting speed test...")
-            
+
             # Test latency first
             latency = self._test_latency()
             logger.info(f"Latency test complete: {latency:.1f}ms")
-            
+
             # Test download speed
             download_mbps = self._test_download(duration_seconds)
             logger.info(f"Download test complete: {download_mbps:.1f} Mbps")
-            
+
             # Test upload speed
             upload_mbps = self._test_upload(max(3, duration_seconds // 3))
             logger.info(f"Upload test complete: {upload_mbps:.1f} Mbps")
-            
+
             # If all tests failed, return None
             if download_mbps == 0 and upload_mbps == 0 and latency == 0:
                 logger.error("All speed tests failed")
                 return None
-            
+
             return {
-                'download_mbps': download_mbps,
-                'upload_mbps': upload_mbps,
-                'latency_ms': latency,
+                "download_mbps": download_mbps,
+                "upload_mbps": upload_mbps,
+                "latency_ms": latency,
             }
         except Exception as e:
             logger.error(f"Speed test error: {e}", exc_info=True)
@@ -87,18 +88,18 @@ class SpeedTest:
             "https://www.cloudflare.com/cdn-cgi/trace",
             "https://1.1.1.1/cdn-cgi/trace",
         ]
-        
+
         for url in test_urls:
             try:
                 start = time.time()
-                req = Request(url, headers={'User-Agent': 'NetworkMonitor/1.0'})
+                req = Request(url, headers={"User-Agent": "NetworkMonitor/1.0"})
                 urlopen(req, timeout=5, context=self._ssl_context)
                 latency = (time.time() - start) * 1000  # Convert to ms
                 latencies.append(latency)
             except Exception as e:
                 logger.debug(f"Latency test to {url} failed: {e}")
                 continue
-        
+
         if latencies:
             # Return median latency
             latencies.sort()
@@ -116,18 +117,23 @@ class SpeedTest:
                     url = url_template.format(size=test_size)
                 else:
                     url = url_template
-                
+
                 logger.debug(f"Testing download from: {url}")
-                
-                req = Request(url, headers={
-                    'User-Agent': 'NetworkMonitor/1.0',
-                    'Accept': '*/*',
-                })
-                
+
+                req = Request(
+                    url,
+                    headers={
+                        "User-Agent": "NetworkMonitor/1.0",
+                        "Accept": "*/*",
+                    },
+                )
+
                 start_time = time.time()
                 bytes_downloaded = 0
-                
-                with urlopen(req, timeout=duration_seconds + 10, context=self._ssl_context) as response:
+
+                with urlopen(
+                    req, timeout=duration_seconds + 10, context=self._ssl_context
+                ) as response:
                     # Read in larger chunks for better throughput measurement
                     chunk_size = 64 * 1024  # 64 KB chunks
                     while time.time() - start_time < duration_seconds:
@@ -135,17 +141,19 @@ class SpeedTest:
                         if not chunk:
                             break
                         bytes_downloaded += len(chunk)
-                
+
                 elapsed = time.time() - start_time
                 if elapsed > 0 and bytes_downloaded > 0:
                     mbps = (bytes_downloaded * 8) / (elapsed * 1_000_000)  # Convert to Mbps
-                    logger.debug(f"Downloaded {bytes_downloaded / 1024 / 1024:.1f} MB in {elapsed:.1f}s = {mbps:.1f} Mbps")
+                    logger.debug(
+                        f"Downloaded {bytes_downloaded / 1024 / 1024:.1f} MB in {elapsed:.1f}s = {mbps:.1f} Mbps"
+                    )
                     return mbps
-                    
+
             except Exception as e:
                 logger.debug(f"Download test failed with {url_template}: {e}")
                 continue
-        
+
         logger.warning("All download tests failed")
         return 0.0
 
@@ -154,11 +162,11 @@ class SpeedTest:
         try:
             # Generate test data (1MB chunks)
             chunk_size = 1024 * 1024  # 1 MB
-            test_data = b'0' * chunk_size
-            
+            test_data = b"0" * chunk_size
+
             start_time = time.time()
             bytes_uploaded = 0
-            
+
             # Upload multiple chunks within duration
             while time.time() - start_time < duration_seconds:
                 try:
@@ -166,10 +174,10 @@ class SpeedTest:
                         self.UPLOAD_URL,
                         data=test_data,
                         headers={
-                            'User-Agent': 'NetworkMonitor/1.0',
-                            'Content-Type': 'application/octet-stream',
+                            "User-Agent": "NetworkMonitor/1.0",
+                            "Content-Type": "application/octet-stream",
                         },
-                        method='POST'
+                        method="POST",
                     )
                     with urlopen(req, timeout=10, context=self._ssl_context) as response:
                         response.read()  # Read response to complete the request
@@ -177,16 +185,18 @@ class SpeedTest:
                 except Exception as e:
                     logger.debug(f"Upload chunk failed: {e}")
                     break
-            
+
             elapsed = time.time() - start_time
             if elapsed > 0 and bytes_uploaded > 0:
                 mbps = (bytes_uploaded * 8) / (elapsed * 1_000_000)
-                logger.debug(f"Uploaded {bytes_uploaded / 1024 / 1024:.1f} MB in {elapsed:.1f}s = {mbps:.1f} Mbps")
+                logger.debug(
+                    f"Uploaded {bytes_uploaded / 1024 / 1024:.1f} MB in {elapsed:.1f}s = {mbps:.1f} Mbps"
+                )
                 return mbps
-                
+
         except Exception as e:
             logger.debug(f"Upload test failed: {e}")
-        
+
         return 0.0
 
     @property

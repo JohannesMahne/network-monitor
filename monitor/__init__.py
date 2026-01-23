@@ -19,6 +19,7 @@ Example:
     >>> conn = detector.get_current_connection()
     >>> print(f"Connected to: {conn.name}")
 """
+
 from .connection import ConnectionDetector, ConnectionInfo
 from .issues import IssueDetector, IssueType, NetworkIssue
 from .network import NetworkStats, SpeedStats

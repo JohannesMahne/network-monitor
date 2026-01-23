@@ -1,4 +1,5 @@
 """Tests for storage/json_store.py"""
+
 import json
 
 from storage.json_store import ConnectionStats, JsonStore

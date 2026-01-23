@@ -10,6 +10,7 @@ Example:
     >>> format_bytes(1500000, speed=True)
     '1.4 MB/s'
 """
+
 from __future__ import annotations
 
 from typing import Union

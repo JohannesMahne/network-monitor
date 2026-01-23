@@ -5,15 +5,16 @@ Components can subscribe to events and publish events without direct references.
 
 Usage:
     from app.events import EventBus, EventType
-    
+
     bus = EventBus()
-    
+
     # Subscribe to events
     bus.subscribe(EventType.CONNECTION_CHANGED, lambda e: print(f"Connection: {e.data}"))
-    
+
     # Publish events
     bus.publish(EventType.CONNECTION_CHANGED, {"old": "WiFi:Home", "new": "WiFi:Office"})
 """
+
 import queue
 import threading
 from dataclasses import dataclass, field
@@ -56,13 +57,13 @@ class EventType(Enum):
     HIGH_LATENCY = auto()
     SPEED_DROP = auto()
     QUALITY_DEGRADED = auto()  # Network quality dropped significantly
-    
+
     # Bandwidth events
     BANDWIDTH_THRESHOLD_EXCEEDED = auto()
-    
+
     # VPN events
     VPN_DISCONNECTED = auto()  # VPN unexpectedly disconnected
-    
+
     # DNS events
     DNS_SLOW = auto()  # DNS resolution is slow
     DNS_UPDATE = auto()  # DNS latency updated
@@ -80,13 +81,14 @@ class EventType(Enum):
 @dataclass
 class Event:
     """Represents an event with type and data.
-    
+
     Attributes:
         event_type: The type of event.
         data: Optional dictionary with event-specific data.
         timestamp: When the event was created.
         source: Optional identifier of the event source.
     """
+
     event_type: EventType
     data: Dict[str, Any] = field(default_factory=dict)
     timestamp: datetime = field(default_factory=datetime.now)
@@ -102,13 +104,13 @@ EventHandler = Callable[[Event], None]
 
 class EventBus:
     """Thread-safe publish/subscribe event bus.
-    
+
     Allows components to communicate without direct coupling.
     Events are processed asynchronously by default.
-    
+
     Attributes:
         async_mode: If True (default), events are processed in a background thread.
-    
+
     Example:
         >>> bus = EventBus()
         >>> bus.subscribe(EventType.STATS_UPDATED, lambda e: print(e.data))
@@ -130,9 +132,7 @@ class EventBus:
         """Start the background event processing thread."""
         self._running = True
         self._worker_thread = threading.Thread(
-            target=self._process_events,
-            daemon=True,
-            name="EventBus-Worker"
+            target=self._process_events, daemon=True, name="EventBus-Worker"
         )
         self._worker_thread.start()
         logger.debug("EventBus worker thread started")
@@ -159,17 +159,16 @@ class EventBus:
                 handler(event)
             except Exception as e:
                 logger.error(
-                    f"Error in event handler for {event.event_type.name}: {e}",
-                    exc_info=True
+                    f"Error in event handler for {event.event_type.name}: {e}", exc_info=True
                 )
 
     def subscribe(self, event_type: EventType, handler: EventHandler) -> None:
         """Subscribe to an event type.
-        
+
         Args:
             event_type: The type of event to subscribe to.
             handler: Callback function that takes an Event parameter.
-        
+
         Example:
             >>> def on_connection_change(event):
             ...     print(f"Connection changed: {event.data}")
@@ -184,11 +183,11 @@ class EventBus:
 
     def unsubscribe(self, event_type: EventType, handler: EventHandler) -> bool:
         """Unsubscribe from an event type.
-        
+
         Args:
             event_type: The type of event to unsubscribe from.
             handler: The handler to remove.
-        
+
         Returns:
             True if handler was found and removed, False otherwise.
         """
@@ -202,23 +201,20 @@ class EventBus:
                     pass
         return False
 
-    def publish(self, event_type: EventType, data: Dict[str, Any] = None,
-                source: str = None) -> None:
+    def publish(
+        self, event_type: EventType, data: Dict[str, Any] = None, source: str = None
+    ) -> None:
         """Publish an event.
-        
+
         Args:
             event_type: The type of event to publish.
             data: Optional data to include with the event.
             source: Optional identifier of the event source.
-        
+
         Example:
             >>> bus.publish(EventType.SPEED_UPDATE, {"upload": 1000, "download": 5000})
         """
-        event = Event(
-            event_type=event_type,
-            data=data or {},
-            source=source
-        )
+        event = Event(event_type=event_type, data=data or {}, source=source)
 
         if self._async_mode:
             self._event_queue.put(event)
@@ -227,22 +223,19 @@ class EventBus:
 
         logger.debug(f"Published {event_type.name}")
 
-    def publish_sync(self, event_type: EventType, data: Dict[str, Any] = None,
-                     source: str = None) -> None:
+    def publish_sync(
+        self, event_type: EventType, data: Dict[str, Any] = None, source: str = None
+    ) -> None:
         """Publish an event synchronously (bypasses queue).
-        
+
         Use this when you need immediate processing, e.g., for UI updates.
         """
-        event = Event(
-            event_type=event_type,
-            data=data or {},
-            source=source
-        )
+        event = Event(event_type=event_type, data=data or {}, source=source)
         self._dispatch_event(event)
 
     def clear_subscribers(self, event_type: Optional[EventType] = None) -> None:
         """Clear subscribers for an event type or all events.
-        
+
         Args:
             event_type: If provided, only clear subscribers for this type.
                        If None, clear all subscribers.
@@ -272,7 +265,7 @@ _global_bus: Optional[EventBus] = None
 
 def get_event_bus() -> EventBus:
     """Get or create the global event bus instance.
-    
+
     Returns:
         The global EventBus instance.
     """

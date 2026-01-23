@@ -5,15 +5,16 @@ All components should use this logging system instead of print().
 
 Usage:
     from config.logging_config import setup_logging, get_logger
-    
+
     # Initialize at app startup
     setup_logging(data_dir=Path.home() / ".network-monitor")
-    
+
     # Get logger in any module
     logger = get_logger(__name__)
     logger.info("Application started")
     logger.error("Something went wrong", exc_info=True)
 """
+
 import logging
 import sys
 from datetime import datetime
@@ -34,25 +35,24 @@ class NetworkMonitorFormatter(logging.Formatter):
 
     # ANSI color codes
     COLORS = {
-        'DEBUG': '\033[36m',     # Cyan
-        'INFO': '\033[32m',      # Green
-        'WARNING': '\033[33m',   # Yellow
-        'ERROR': '\033[31m',     # Red
-        'CRITICAL': '\033[35m',  # Magenta
-        'RESET': '\033[0m',
+        "DEBUG": "\033[36m",  # Cyan
+        "INFO": "\033[32m",  # Green
+        "WARNING": "\033[33m",  # Yellow
+        "ERROR": "\033[31m",  # Red
+        "CRITICAL": "\033[35m",  # Magenta
+        "RESET": "\033[0m",
     }
 
     def __init__(self, use_colors: bool = True):
         self.use_colors = use_colors
         super().__init__(
-            fmt='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-            datefmt='%Y-%m-%d %H:%M:%S'
+            fmt="%(asctime)s - %(name)s - %(levelname)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
         )
 
     def format(self, record: logging.LogRecord) -> str:
         if self.use_colors and sys.stderr.isatty():
-            color = self.COLORS.get(record.levelname, '')
-            reset = self.COLORS['RESET']
+            color = self.COLORS.get(record.levelname, "")
+            reset = self.COLORS["RESET"]
             record.levelname = f"{color}{record.levelname}{reset}"
         return super().format(record)
 
@@ -61,22 +61,22 @@ def setup_logging(
     data_dir: Optional[Path] = None,
     debug: bool = False,
     console_output: bool = True,
-    log_to_file: bool = True
+    log_to_file: bool = True,
 ) -> logging.Logger:
     """Initialize the logging system.
-    
+
     Should be called once at application startup. Subsequent calls
     will reconfigure the existing logger.
-    
+
     Args:
         data_dir: Directory for log files. Defaults to ~/.network-monitor/
         debug: Enable debug-level logging.
         console_output: Also log to stderr.
         log_to_file: Write logs to file with rotation.
-    
+
     Returns:
         The root logger for the application.
-    
+
     Example:
         >>> from pathlib import Path
         >>> logger = setup_logging(Path.home() / ".network-monitor", debug=True)
@@ -91,7 +91,7 @@ def setup_logging(
     data_dir.mkdir(parents=True, exist_ok=True)
 
     # Create or get root logger
-    root_logger = logging.getLogger('netmon')
+    root_logger = logging.getLogger("netmon")
     root_logger.setLevel(logging.DEBUG if debug else logging.INFO)
 
     # Clear existing handlers
@@ -104,13 +104,14 @@ def setup_logging(
             log_file,
             maxBytes=STORAGE.LOG_MAX_BYTES,
             backupCount=STORAGE.LOG_BACKUP_COUNT,
-            encoding='utf-8'
+            encoding="utf-8",
         )
         file_handler.setLevel(logging.DEBUG)
-        file_handler.setFormatter(logging.Formatter(
-            '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-            datefmt='%Y-%m-%d %H:%M:%S'
-        ))
+        file_handler.setFormatter(
+            logging.Formatter(
+                "%(asctime)s - %(name)s - %(levelname)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
+            )
+        )
         root_logger.addHandler(file_handler)
 
     # Console handler (stderr)
@@ -134,16 +135,16 @@ def setup_logging(
 
 def get_logger(name: str) -> logging.Logger:
     """Get a logger for a specific module.
-    
+
     Returns a child logger of the root 'netmon' logger. If logging
     hasn't been initialized, creates a basic logger.
-    
+
     Args:
         name: Usually __name__ of the calling module.
-    
+
     Returns:
         A configured logger instance.
-    
+
     Example:
         >>> logger = get_logger(__name__)
         >>> logger.info("Processing started")
@@ -154,17 +155,17 @@ def get_logger(name: str) -> logging.Logger:
     # Create short name for cleaner logs
     # e.g., "monitor.scanner" instead of full module path
     short_name = name
-    if '.' in name:
-        parts = name.split('.')
+    if "." in name:
+        parts = name.split(".")
         # Keep last 2 parts at most
-        short_name = '.'.join(parts[-2:]) if len(parts) > 1 else parts[-1]
+        short_name = ".".join(parts[-2:]) if len(parts) > 1 else parts[-1]
 
     if short_name not in _loggers:
         if not _initialized:
             # Fallback: create a basic logger if setup wasn't called
             logging.basicConfig(level=logging.INFO)
 
-        logger = logging.getLogger(f'netmon.{short_name}')
+        logger = logging.getLogger(f"netmon.{short_name}")
         _loggers[short_name] = logger
 
     return _loggers[short_name]
@@ -172,12 +173,12 @@ def get_logger(name: str) -> logging.Logger:
 
 def log_exception(logger: logging.Logger, message: str, exc: Exception) -> None:
     """Log an exception with full traceback and context.
-    
+
     Args:
         logger: The logger to use.
         message: Descriptive message about what was happening.
         exc: The exception that was caught.
-    
+
     Example:
         >>> try:
         ...     risky_operation()
@@ -187,19 +188,15 @@ def log_exception(logger: logging.Logger, message: str, exc: Exception) -> None:
     logger.error(
         f"{message}: {type(exc).__name__}: {exc}",
         exc_info=True,
-        extra={'exception_type': type(exc).__name__}
+        extra={"exception_type": type(exc).__name__},
     )
 
 
 def log_subprocess_call(
-    logger: logging.Logger,
-    command: list,
-    returncode: int,
-    duration_ms: float,
-    success: bool
+    logger: logging.Logger, command: list, returncode: int, duration_ms: float, success: bool
 ) -> None:
     """Log a subprocess call with timing information.
-    
+
     Args:
         logger: The logger to use.
         command: The command that was run.
@@ -211,13 +208,13 @@ def log_subprocess_call(
     logger.log(
         level,
         f"Subprocess: {' '.join(command[:3])}{'...' if len(command) > 3 else ''} "
-        f"-> rc={returncode}, {duration_ms:.1f}ms"
+        f"-> rc={returncode}, {duration_ms:.1f}ms",
     )
 
 
 class LogContext:
     """Context manager for logging operation duration.
-    
+
     Example:
         >>> with LogContext(logger, "Device scan"):
         ...     scan_devices()
@@ -239,13 +236,8 @@ class LogContext:
         duration = (datetime.now() - self.start_time).total_seconds() * 1000
 
         if exc_type:
-            self.logger.error(
-                f"{self.operation} failed after {duration:.0f}ms: {exc_val}"
-            )
+            self.logger.error(f"{self.operation} failed after {duration:.0f}ms: {exc_val}")
         else:
-            self.logger.log(
-                self.level,
-                f"{self.operation} completed in {duration:.0f}ms"
-            )
+            self.logger.log(self.level, f"{self.operation} completed in {duration:.0f}ms")
 
         return False  # Don't suppress exceptions

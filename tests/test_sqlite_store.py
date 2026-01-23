@@ -1,4 +1,5 @@
 """Tests for SQLite storage backend."""
+
 from pathlib import Path
 
 import pytest
@@ -72,7 +73,7 @@ class TestSQLiteStore:
         issue = {
             "issue_type": "high_latency",
             "description": "Latency spike detected",
-            "details": {"latency_ms": 150}
+            "details": {"latency_ms": 150},
         }
         store.add_issue("WiFi:TestNetwork", issue)
 
@@ -154,6 +155,7 @@ class TestSQLiteStore:
         assert Path(export_path).exists()
 
         import json
+
         with open(export_path) as f:
             data = json.load(f)
 
@@ -175,10 +177,7 @@ class TestSQLiteStore:
     def test_save_and_get_device(self, store):
         """Test saving and retrieving device information."""
         store.save_device(
-            "AA:BB:CC:DD:EE:FF",
-            custom_name="My Device",
-            vendor="Apple",
-            device_type="laptop"
+            "AA:BB:CC:DD:EE:FF", custom_name="My Device", vendor="Apple", device_type="laptop"
         )
 
         device = store.get_device("AA:BB:CC:DD:EE:FF")
@@ -218,7 +217,7 @@ class TestConnectionStats:
             "bytes_recv": 2000,
             "peak_upload": 100.0,
             "peak_download": 200.0,
-            "issues": []
+            "issues": [],
         }
         stats = ConnectionStats.from_dict(data)
         assert stats.bytes_sent == 1000

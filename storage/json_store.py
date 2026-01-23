@@ -1,4 +1,5 @@
 """JSON-based data persistence for network statistics."""
+
 import json
 import threading
 from dataclasses import dataclass
@@ -15,6 +16,7 @@ logger = get_logger(__name__)
 @dataclass
 class ConnectionStats:
     """Statistics for a single connection."""
+
     bytes_sent: int = 0
     bytes_recv: int = 0
     peak_upload: float = 0
@@ -31,17 +33,17 @@ class ConnectionStats:
             "bytes_recv": self.bytes_recv,
             "peak_upload": self.peak_upload,
             "peak_download": self.peak_download,
-            "issues": self.issues
+            "issues": self.issues,
         }
 
     @classmethod
-    def from_dict(cls, data: dict) -> 'ConnectionStats':
+    def from_dict(cls, data: dict) -> "ConnectionStats":
         return cls(
             bytes_sent=data.get("bytes_sent", 0),
             bytes_recv=data.get("bytes_recv", 0),
             peak_upload=data.get("peak_upload", 0),
             peak_download=data.get("peak_download", 0),
-            issues=data.get("issues", [])
+            issues=data.get("issues", []),
         )
 
 
@@ -83,11 +85,12 @@ class JsonStore:
 
     def _save(self, force: bool = False) -> None:
         """Save data to JSON file if dirty and interval has passed.
-        
+
         Args:
             force: If True, save immediately regardless of interval.
         """
         import time
+
         current_time = time.time()
 
         if not force and not self._dirty:
@@ -98,8 +101,8 @@ class JsonStore:
 
         try:
             # Atomic write: write to temp file then rename
-            temp_file = self.data_file.with_suffix('.tmp')
-            with open(temp_file, 'w') as f:
+            temp_file = self.data_file.with_suffix(".tmp")
+            with open(temp_file, "w") as f:
                 json.dump(self._data, f, indent=2)
             temp_file.replace(self.data_file)
             self._dirty = False
@@ -125,10 +128,16 @@ class JsonStore:
             self._data[today] = {}
         return today
 
-    def update_stats(self, connection_key: str, bytes_sent: int, bytes_recv: int,
-                     peak_upload: float = 0, peak_download: float = 0) -> None:
+    def update_stats(
+        self,
+        connection_key: str,
+        bytes_sent: int,
+        bytes_recv: int,
+        peak_upload: float = 0,
+        peak_download: float = 0,
+    ) -> None:
         """Update statistics for a connection by ADDING to existing values.
-        
+
         Args:
             connection_key: Connection identifier (e.g., SSID or interface name)
             bytes_sent: Bytes sent since last update (delta, not total)
@@ -181,10 +190,7 @@ class JsonStore:
         if today not in self._data:
             return {}
 
-        return {
-            key: ConnectionStats.from_dict(data)
-            for key, data in self._data[today].items()
-        }
+        return {key: ConnectionStats.from_dict(data) for key, data in self._data[today].items()}
 
     def get_today_totals(self) -> tuple:
         """Get today's total bytes sent and received across all connections."""
@@ -216,8 +222,7 @@ class JsonStore:
             day = (date.today() - timedelta(days=i)).isoformat()
             if day in self._data:
                 result[day] = {
-                    key: ConnectionStats.from_dict(data)
-                    for key, data in self._data[day].items()
+                    key: ConnectionStats.from_dict(data) for key, data in self._data[day].items()
                 }
         return result
 
@@ -252,7 +257,7 @@ class JsonStore:
 
     def get_daily_totals(self, days: int = 7) -> List[Dict]:
         """Get daily totals for the past N days.
-        
+
         Returns list of {date, sent, recv, connections} dicts.
         """
         from datetime import timedelta
@@ -265,24 +270,21 @@ class JsonStore:
                 total_sent = sum(c.get("bytes_sent", 0) for c in day_data.values())
                 total_recv = sum(c.get("bytes_recv", 0) for c in day_data.values())
                 connections = list(day_data.keys())
-                result.append({
-                    "date": day,
-                    "sent": total_sent,
-                    "recv": total_recv,
-                    "connections": connections
-                })
+                result.append(
+                    {
+                        "date": day,
+                        "sent": total_sent,
+                        "recv": total_recv,
+                        "connections": connections,
+                    }
+                )
             else:
-                result.append({
-                    "date": day,
-                    "sent": 0,
-                    "recv": 0,
-                    "connections": []
-                })
+                result.append({"date": day, "sent": 0, "recv": 0, "connections": []})
         return result
 
     def get_weekly_totals(self) -> Dict:
         """Get totals for the past 7 days.
-        
+
         Returns {sent, recv, by_connection: {conn: {sent, recv}}}
         """
         from datetime import timedelta
@@ -305,15 +307,11 @@ class JsonStore:
                     by_connection[conn_key]["sent"] += sent
                     by_connection[conn_key]["recv"] += recv
 
-        return {
-            "sent": total_sent,
-            "recv": total_recv,
-            "by_connection": by_connection
-        }
+        return {"sent": total_sent, "recv": total_recv, "by_connection": by_connection}
 
     def get_monthly_totals(self) -> Dict:
         """Get totals for the past 30 days.
-        
+
         Returns {sent, recv, by_connection: {conn: {sent, recv}}}
         """
         from datetime import timedelta
@@ -336,15 +334,11 @@ class JsonStore:
                     by_connection[conn_key]["sent"] += sent
                     by_connection[conn_key]["recv"] += recv
 
-        return {
-            "sent": total_sent,
-            "recv": total_recv,
-            "by_connection": by_connection
-        }
+        return {"sent": total_sent, "recv": total_recv, "by_connection": by_connection}
 
     def get_connection_history(self, connection_key: str, days: int = 30) -> List[Dict]:
         """Get daily stats for a specific connection.
-        
+
         Returns list of {date, sent, recv} dicts.
         """
         from datetime import timedelta
@@ -354,15 +348,13 @@ class JsonStore:
             day = (date.today() - timedelta(days=i)).isoformat()
             if day in self._data and connection_key in self._data[day]:
                 stats = self._data[day][connection_key]
-                result.append({
-                    "date": day,
-                    "sent": stats.get("bytes_sent", 0),
-                    "recv": stats.get("bytes_recv", 0)
-                })
+                result.append(
+                    {
+                        "date": day,
+                        "sent": stats.get("bytes_sent", 0),
+                        "recv": stats.get("bytes_recv", 0),
+                    }
+                )
             else:
-                result.append({
-                    "date": day,
-                    "sent": 0,
-                    "recv": 0
-                })
+                result.append({"date": day, "sent": 0, "recv": 0})
         return result

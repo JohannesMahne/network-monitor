@@ -46,6 +46,13 @@ A lightweight macOS menu bar app that monitors network traffic, tracks daily usa
 - **Quality score**: 0–100 score based on latency/jitter/consistency
 - **VPN detection**: detects active VPN interfaces
 - **Issue detection**: connection drops, sustained high latency, notable speed drops, quality degradation
+- **DNS monitoring**: tracks DNS resolution performance and alerts on slow DNS
+- **Bandwidth alerts**: per‑app bandwidth threshold monitoring with configurable alerts
+
+### Connection tracking
+
+- **External connection tracking**: monitors connections to external IPs per app
+- **Geolocation**: optional IP‑to‑country lookup with local caching (uses free APIs)
 
 ### System integration
 

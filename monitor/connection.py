@@ -1,4 +1,5 @@
 """Connection detection for WiFi and Ethernet on macOS."""
+
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -15,6 +16,7 @@ logger = get_logger(__name__)
 @dataclass
 class ConnectionInfo:
     """Information about the current network connection."""
+
     connection_type: str  # "WiFi", "Ethernet", "Unknown"
     name: str  # SSID for WiFi, interface name for others
     interface: str  # e.g., "en0", "en1"
@@ -29,7 +31,9 @@ class ConnectionDetector:
     """Detects and monitors network connection type and details."""
 
     # Airport command path (removed in newer macOS versions)
-    AIRPORT_PATH = '/System/Library/PrivateFrameworks/Apple80211.framework/Versions/Current/Resources/airport'
+    AIRPORT_PATH = (
+        "/System/Library/PrivateFrameworks/Apple80211.framework/Versions/Current/Resources/airport"
+    )
 
     def __init__(self, event_bus=None):
         self._last_connection: Optional[ConnectionInfo] = None
@@ -39,28 +43,30 @@ class ConnectionDetector:
         self._has_airport = Path(self.AIRPORT_PATH).exists()
         self._event_bus = event_bus  # Optional event bus for publishing events
         self._last_vpn_status: bool = False  # Track previous VPN status
-        logger.debug(f"ConnectionDetector initialized, WiFi interface: {self._wifi_interface}, airport={self._has_airport}")
+        logger.debug(
+            f"ConnectionDetector initialized, WiFi interface: {self._wifi_interface}, airport={self._has_airport}"
+        )
 
     def _find_wifi_interface(self) -> str:
         """Find the WiFi interface name (usually en0 or en1)."""
         try:
             # Hardware ports change very rarely - cache for 60 seconds
             result = self._subprocess_cache.run(
-                ['networksetup', '-listallhardwareports'],
+                ["networksetup", "-listallhardwareports"],
                 ttl=60.0,
-                timeout=INTERVALS.SUBPROCESS_TIMEOUT_SECONDS
+                timeout=INTERVALS.SUBPROCESS_TIMEOUT_SECONDS,
             )
-            lines = result.stdout.split('\n')
+            lines = result.stdout.split("\n")
             for i, line in enumerate(lines):
-                if 'Wi-Fi' in line or 'AirPort' in line:
+                if "Wi-Fi" in line or "AirPort" in line:
                     # Next line should have "Device: enX"
                     if i + 1 < len(lines):
-                        match = re.search(r'Device:\s*(\w+)', lines[i + 1])
+                        match = re.search(r"Device:\s*(\w+)", lines[i + 1])
                         if match:
                             return match.group(1)
         except Exception as e:
             logger.debug(f"Error finding WiFi interface: {e}")
-        return 'en0'  # Default fallback
+        return "en0"  # Default fallback
 
     def _get_wifi_ssid(self) -> Optional[str]:
         """Get the current WiFi SSID using CoreWLAN or command-line tools."""
@@ -70,15 +76,15 @@ class ConnectionDetector:
             import objc
             from Foundation import NSBundle
 
-            CoreWLAN = NSBundle.bundleWithPath_('/System/Library/Frameworks/CoreWLAN.framework')
+            CoreWLAN = NSBundle.bundleWithPath_("/System/Library/Frameworks/CoreWLAN.framework")
             if CoreWLAN and CoreWLAN.load():
-                CWWiFiClient = objc.lookUpClass('CWWiFiClient')
+                CWWiFiClient = objc.lookUpClass("CWWiFiClient")
                 client = CWWiFiClient.sharedWiFiClient()
                 interface = client.interface()
 
                 if interface:
                     ssid = interface.ssid()
-                    if ssid and ssid != '<redacted>':
+                    if ssid and ssid != "<redacted>":
                         return ssid
         except Exception:
             pass  # nosec B110 - Fallback chain, continue to next method
@@ -86,16 +92,19 @@ class ConnectionDetector:
         # Method 2: Try networksetup command (cached for 2 seconds - SSID changes slowly)
         try:
             result = self._subprocess_cache.run(
-                ['networksetup', '-getairportnetwork', self._wifi_interface],
+                ["networksetup", "-getairportnetwork", self._wifi_interface],
                 ttl=2.0,
-                timeout=INTERVALS.SUBPROCESS_TIMEOUT_SECONDS
+                timeout=INTERVALS.SUBPROCESS_TIMEOUT_SECONDS,
             )
             if result.returncode == 0:
                 # Output: "Current Wi-Fi Network: NetworkName"
-                match = re.search(r'Current Wi-Fi Network:\s*(.+)', result.stdout)
+                match = re.search(r"Current Wi-Fi Network:\s*(.+)", result.stdout)
                 if match:
                     ssid = match.group(1).strip()
-                    if ssid and ssid not in ("You are not associated with an AirPort network.", "<redacted>"):
+                    if ssid and ssid not in (
+                        "You are not associated with an AirPort network.",
+                        "<redacted>",
+                    ):
                         return ssid
         except Exception:
             pass  # nosec B110 - Fallback chain, continue to next method
@@ -104,16 +113,16 @@ class ConnectionDetector:
         if self._has_airport:
             try:
                 result = self._subprocess_cache.run(
-                    [self.AIRPORT_PATH, '-I'],
+                    [self.AIRPORT_PATH, "-I"],
                     ttl=2.0,
                     timeout=INTERVALS.SUBPROCESS_TIMEOUT_SECONDS,
-                    check_allowed=False  # Special path, not in allowlist
+                    check_allowed=False,  # Special path, not in allowlist
                 )
                 if result.returncode == 0:
-                    match = re.search(r'\s+SSID:\s*(.+)', result.stdout)
+                    match = re.search(r"\s+SSID:\s*(.+)", result.stdout)
                     if match:
                         ssid = match.group(1).strip()
-                        if ssid and ssid != '<redacted>':
+                        if ssid and ssid != "<redacted>":
                             return ssid
             except Exception:
                 pass  # nosec B110 - Fallback chain, continue to next method
@@ -122,11 +131,11 @@ class ConnectionDetector:
         # (macOS 14+ hides SSID without Location Services permission)
         try:
             result = self._subprocess_cache.run(
-                ['ipconfig', 'getsummary', self._wifi_interface],
+                ["ipconfig", "getsummary", self._wifi_interface],
                 ttl=2.0,
-                timeout=INTERVALS.SUBPROCESS_TIMEOUT_SECONDS
+                timeout=INTERVALS.SUBPROCESS_TIMEOUT_SECONDS,
             )
-            if 'SSID' in result.stdout:
+            if "SSID" in result.stdout:
                 # WiFi is connected but SSID is hidden due to privacy
                 return "[Private Network]"
         except Exception:
@@ -136,7 +145,7 @@ class ConnectionDetector:
 
     def _get_wifi_signal_strength(self) -> Optional[int]:
         """Get WiFi signal strength (RSSI) in dBm.
-        
+
         Returns:
             Signal strength in dBm (typically -30 to -100), or None if unavailable.
         """
@@ -145,9 +154,9 @@ class ConnectionDetector:
             import objc
             from Foundation import NSBundle
 
-            CoreWLAN = NSBundle.bundleWithPath_('/System/Library/Frameworks/CoreWLAN.framework')
+            CoreWLAN = NSBundle.bundleWithPath_("/System/Library/Frameworks/CoreWLAN.framework")
             if CoreWLAN and CoreWLAN.load():
-                CWWiFiClient = objc.lookUpClass('CWWiFiClient')
+                CWWiFiClient = objc.lookUpClass("CWWiFiClient")
                 client = CWWiFiClient.sharedWiFiClient()
                 interface = client.interface()
 
@@ -162,14 +171,14 @@ class ConnectionDetector:
         if self._has_airport:
             try:
                 result = self._subprocess_cache.run(
-                    [self.AIRPORT_PATH, '-I'],
+                    [self.AIRPORT_PATH, "-I"],
                     ttl=2.0,
                     timeout=INTERVALS.SUBPROCESS_TIMEOUT_SECONDS,
-                    check_allowed=False  # Special path, not in allowlist
+                    check_allowed=False,  # Special path, not in allowlist
                 )
                 if result.returncode == 0:
                     # Look for "agrCtlRSSI: -XX" in output
-                    match = re.search(r'agrCtlRSSI:\s*(-?\d+)', result.stdout)
+                    match = re.search(r"agrCtlRSSI:\s*(-?\d+)", result.stdout)
                     if match:
                         return int(match.group(1))
             except Exception:
@@ -185,14 +194,14 @@ class ConnectionDetector:
 
         for iface, addr_list in addrs.items():
             # Skip loopback and inactive interfaces
-            if iface == 'lo0' or iface.startswith('lo'):
+            if iface == "lo0" or iface.startswith("lo"):
                 continue
             if iface not in stats or not stats[iface].isup:
                 continue
 
             # Check for IPv4 address
             for addr in addr_list:
-                if addr.family.name == 'AF_INET' and not addr.address.startswith('127.'):
+                if addr.family.name == "AF_INET" and not addr.address.startswith("127."):
                     active.append(iface)
                     break
 
@@ -203,7 +212,7 @@ class ConnectionDetector:
         addrs = psutil.net_if_addrs()
         if interface in addrs:
             for addr in addrs[interface]:
-                if addr.family.name == 'AF_INET':
+                if addr.family.name == "AF_INET":
                     return addr.address
         return None
 
@@ -212,16 +221,16 @@ class ConnectionDetector:
         try:
             # Hardware ports change very rarely - cache for 60 seconds
             result = self._subprocess_cache.run(
-                ['networksetup', '-listallhardwareports'],
+                ["networksetup", "-listallhardwareports"],
                 ttl=60.0,
-                timeout=INTERVALS.SUBPROCESS_TIMEOUT_SECONDS
+                timeout=INTERVALS.SUBPROCESS_TIMEOUT_SECONDS,
             )
-            lines = result.stdout.split('\n')
+            lines = result.stdout.split("\n")
             current_port = ""
             for line in lines:
-                if line.startswith('Hardware Port:'):
-                    current_port = line.replace('Hardware Port:', '').strip()
-                elif f'Device: {interface}' in line:
+                if line.startswith("Hardware Port:"):
+                    current_port = line.replace("Hardware Port:", "").strip()
+                elif f"Device: {interface}" in line:
                     return current_port
         except Exception:
             pass  # nosec B110 - Best effort, return "Unknown" below
@@ -233,10 +242,7 @@ class ConnectionDetector:
 
         if not active_interfaces:
             return ConnectionInfo(
-                connection_type="None",
-                name="Disconnected",
-                interface="",
-                is_connected=False
+                connection_type="None", name="Disconnected", interface="", is_connected=False
             )
 
         # Check if WiFi is active and connected to a network
@@ -244,7 +250,9 @@ class ConnectionDetector:
             ssid = self._get_wifi_ssid()
             if ssid:
                 # Clean up display name for private networks
-                display_name = ssid if ssid != "[Private Network]" else "WiFi (Private - enable Location)"
+                display_name = (
+                    ssid if ssid != "[Private Network]" else "WiFi (Private - enable Location)"
+                )
                 # Get WiFi signal strength
                 signal_strength = self._get_wifi_signal_strength()
                 return ConnectionInfo(
@@ -253,7 +261,7 @@ class ConnectionDetector:
                     interface=self._wifi_interface,
                     is_connected=True,
                     ip_address=self._get_ip_address(self._wifi_interface),
-                    wifi_signal_strength=signal_strength
+                    wifi_signal_strength=signal_strength,
                 )
 
         # Check each active interface and determine its type
@@ -269,37 +277,37 @@ class ConnectionDetector:
                     interface=iface,
                     is_connected=True,
                     ip_address=self._get_ip_address(iface),
-                    wifi_signal_strength=signal_strength
+                    wifi_signal_strength=signal_strength,
                 )
 
             # Ethernet-type connections
-            if 'Ethernet' in iface_type or 'LAN' in iface_type:
+            if "Ethernet" in iface_type or "LAN" in iface_type:
                 return ConnectionInfo(
                     connection_type="Ethernet",
                     name=iface_type,
                     interface=iface,
                     is_connected=True,
-                    ip_address=self._get_ip_address(iface)
+                    ip_address=self._get_ip_address(iface),
                 )
 
             # Thunderbolt connections (often docks with Ethernet)
-            if 'Thunderbolt' in iface_type:
+            if "Thunderbolt" in iface_type:
                 return ConnectionInfo(
                     connection_type="Thunderbolt",
                     name=f"Thunderbolt Network ({iface})",
                     interface=iface,
                     is_connected=True,
-                    ip_address=self._get_ip_address(iface)
+                    ip_address=self._get_ip_address(iface),
                 )
 
             # Bridge connections
-            if iface.startswith('bridge'):
+            if iface.startswith("bridge"):
                 return ConnectionInfo(
                     connection_type="Bridge",
                     name=f"Bridge ({iface})",
                     interface=iface,
                     is_connected=True,
-                    ip_address=self._get_ip_address(iface)
+                    ip_address=self._get_ip_address(iface),
                 )
 
         # Fallback: use first active interface
@@ -310,7 +318,7 @@ class ConnectionDetector:
             name=f"{iface_type} ({iface})" if iface_type != "Unknown" else iface,
             interface=iface,
             is_connected=True,
-            ip_address=self._get_ip_address(iface)
+            ip_address=self._get_ip_address(iface),
         )
 
     def has_connection_changed(self) -> bool:
@@ -322,9 +330,9 @@ class ConnectionDetector:
             return True
 
         changed = (
-            current.connection_type != self._last_connection.connection_type or
-            current.name != self._last_connection.name or
-            current.is_connected != self._last_connection.is_connected
+            current.connection_type != self._last_connection.connection_type
+            or current.name != self._last_connection.name
+            or current.is_connected != self._last_connection.is_connected
         )
 
         self._last_connection = current
@@ -340,19 +348,36 @@ class ConnectionDetector:
     # === VPN Detection ===
 
     # Known VPN interface prefixes
-    VPN_INTERFACE_PREFIXES = ('utun', 'tun', 'tap', 'ppp', 'ipsec', 'gif')
+    VPN_INTERFACE_PREFIXES = ("utun", "tun", "tap", "ppp", "ipsec", "gif")
 
     # Known VPN process names (partial matches)
     VPN_PROCESS_NAMES = (
-        'openvpn', 'wireguard', 'nordvpn', 'expressvpn', 'surfshark',
-        'protonvpn', 'mullvad', 'privateinternetaccess', 'pia', 'tunnelblick',
-        'viscosity', 'cisco', 'anyconnect', 'globalprotect', 'forticlient',
-        'pulse', 'f5', 'zscaler', 'netskope', 'cloudflare', 'warp'
+        "openvpn",
+        "wireguard",
+        "nordvpn",
+        "expressvpn",
+        "surfshark",
+        "protonvpn",
+        "mullvad",
+        "privateinternetaccess",
+        "pia",
+        "tunnelblick",
+        "viscosity",
+        "cisco",
+        "anyconnect",
+        "globalprotect",
+        "forticlient",
+        "pulse",
+        "f5",
+        "zscaler",
+        "netskope",
+        "cloudflare",
+        "warp",
     )
 
     def detect_vpn(self) -> tuple:
         """Detect if a VPN connection is active.
-        
+
         Returns:
             Tuple of (vpn_active: bool, vpn_name: Optional[str])
         """
@@ -376,18 +401,22 @@ class ConnectionDetector:
                 else:
                     current_vpn = False
                     vpn_name = None
-        
+
         # Detect VPN disconnect (was connected, now disconnected)
         if self._last_vpn_status and not current_vpn and self._event_bus:
             from app.events import EventType
-            self._event_bus.publish(EventType.VPN_DISCONNECTED, {
-                'previous_vpn_name': getattr(self, '_last_vpn_name', None),
-            })
-        
+
+            self._event_bus.publish(
+                EventType.VPN_DISCONNECTED,
+                {
+                    "previous_vpn_name": getattr(self, "_last_vpn_name", None),
+                },
+            )
+
         self._last_vpn_status = current_vpn
         if current_vpn:
             self._last_vpn_name = vpn_name
-        
+
         return current_vpn, vpn_name
 
     def _check_vpn_interfaces(self) -> Optional[str]:
@@ -404,7 +433,7 @@ class ConnectionDetector:
                             # Verify it has an IP address assigned
                             if iface_name in addrs:
                                 for addr in addrs[iface_name]:
-                                    if addr.family.name == 'AF_INET':
+                                    if addr.family.name == "AF_INET":
                                         return f"VPN ({iface_name})"
         except Exception as e:
             logger.debug(f"VPN interface check error: {e}")
@@ -413,13 +442,13 @@ class ConnectionDetector:
     def _check_vpn_processes(self) -> Optional[str]:
         """Check for running VPN processes."""
         try:
-            for proc in psutil.process_iter(['name']):
+            for proc in psutil.process_iter(["name"]):
                 try:
-                    proc_name = proc.info['name'].lower()
+                    proc_name = proc.info["name"].lower()
                     for vpn_name in self.VPN_PROCESS_NAMES:
                         if vpn_name in proc_name:
                             # Return a cleaned up name
-                            return proc.info['name']
+                            return proc.info["name"]
                 except (psutil.NoSuchProcess, psutil.AccessDenied):
                     continue
         except Exception as e:
@@ -430,19 +459,19 @@ class ConnectionDetector:
         """Check macOS network services for active VPN."""
         try:
             result = self._subprocess_cache.run(
-                ['networksetup', '-listnetworkserviceorder'],
+                ["networksetup", "-listnetworkserviceorder"],
                 ttl=30.0,
-                timeout=INTERVALS.SUBPROCESS_TIMEOUT_SECONDS
+                timeout=INTERVALS.SUBPROCESS_TIMEOUT_SECONDS,
             )
 
             if result.returncode == 0:
                 # Look for VPN-related services that are active
-                lines = result.stdout.split('\n')
+                lines = result.stdout.split("\n")
                 for i, line in enumerate(lines):
                     line_lower = line.lower()
-                    if 'vpn' in line_lower or 'ipsec' in line_lower or 'l2tp' in line_lower:
+                    if "vpn" in line_lower or "ipsec" in line_lower or "l2tp" in line_lower:
                         # Extract service name
-                        match = re.search(r'\(\d+\)\s+(.+)', line)
+                        match = re.search(r"\(\d+\)\s+(.+)", line)
                         if match:
                             service_name = match.group(1).strip()
                             # Check if this service is connected
@@ -456,13 +485,16 @@ class ConnectionDetector:
         """Check if a network service is currently active."""
         try:
             result = self._subprocess_cache.run(
-                ['networksetup', '-getinfo', service_name],
+                ["networksetup", "-getinfo", service_name],
                 ttl=5.0,
-                timeout=INTERVALS.SUBPROCESS_TIMEOUT_SECONDS
+                timeout=INTERVALS.SUBPROCESS_TIMEOUT_SECONDS,
             )
             if result.returncode == 0:
                 # If it has an IP address, it's active
-                return 'IP address:' in result.stdout and 'IP address: none' not in result.stdout.lower()
+                return (
+                    "IP address:" in result.stdout
+                    and "IP address: none" not in result.stdout.lower()
+                )
         except Exception:
             pass  # nosec B110 - Best effort, return False below
         return False

@@ -1,4 +1,5 @@
 """Tests for icon generation."""
+
 from pathlib import Path
 
 import pytest
@@ -212,12 +213,7 @@ class TestSparklineRendering:
     def test_sparkline_custom_dimensions(self, icon_gen):
         """Test sparkline with custom dimensions."""
         values = [1, 2, 3, 4, 5]
-        path = icon_gen.create_sparkline(
-            values,
-            width=100,
-            height=30,
-            use_matplotlib=False
-        )
+        path = icon_gen.create_sparkline(values, width=100, height=30, use_matplotlib=False)
 
         assert Path(path).exists()
 

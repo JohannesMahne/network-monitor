@@ -5,7 +5,6 @@ Monitors network traffic, tracks daily usage per connection, and logs issues.
 """
 import atexit
 import json
-import os
 import signal
 import sys
 import tempfile
@@ -27,7 +26,7 @@ from app.events import EventBus, EventType
 from app.sparkline_renderer import SparklineRenderer
 from app.timer import MenuAwareTimer
 from config import COLORS, INTERVALS, STORAGE, THRESHOLDS, get_logger, setup_logging
-from config.singleton import SingletonLock, get_singleton_lock
+from config.singleton import get_singleton_lock
 from monitor.connection import ConnectionInfo
 from monitor.issues import IssueType
 from monitor.network import format_bytes
@@ -51,17 +50,17 @@ _singleton_lock = get_singleton_lock()
 
 def create_status_icon(color: str, size: int = 18) -> str:
     """Create a colored circle icon for the menu bar. Returns path to temp file."""
-    img = Image.new('RGBA', (size, size), (0, 0, 0, 0))
+    img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
 
     # Color mapping - use constants
     colors = {
-        'green': COLORS.GREEN_RGBA,
-        'yellow': COLORS.YELLOW_RGBA,
-        'red': COLORS.RED_RGBA,
-        'gray': COLORS.GRAY_RGBA,
+        "green": COLORS.GREEN_RGBA,
+        "yellow": COLORS.YELLOW_RGBA,
+        "red": COLORS.RED_RGBA,
+        "gray": COLORS.GRAY_RGBA,
     }
-    fill_color = colors.get(color, colors['gray'])
+    fill_color = colors.get(color, colors["gray"])
 
     # Draw filled circle with slight padding
     padding = 2
@@ -70,8 +69,8 @@ def create_status_icon(color: str, size: int = 18) -> str:
     # Save to temp file
     temp_dir = Path(tempfile.gettempdir()) / STORAGE.ICON_TEMP_DIR
     temp_dir.mkdir(exist_ok=True)
-    icon_path = temp_dir / f'status_{color}.png'
-    img.save(icon_path, 'PNG')
+    icon_path = temp_dir / f"status_{color}.png"
+    img.save(icon_path, "PNG")
 
     return str(icon_path)
 
@@ -89,24 +88,23 @@ class NetworkMonitorApp(rumps.App):
 
     def __init__(self):
         super().__init__(
-            name="NetMon",
-            title="--",  # Will be updated based on settings
-            quit_button=None
+            name="NetMon", title="--", quit_button=None  # Will be updated based on settings
         )
 
         # Initialize dependency container and controller
         self._event_bus = EventBus(async_mode=False)  # Sync for UI updates
         self._deps = create_dependencies(event_bus=self._event_bus)
         self._controller = AppController(self._deps, self._event_bus)
-        
+
         # Initialize sparkline renderer
         self._sparkline_renderer = SparklineRenderer()
-        
+
         # Initialize speed test
         self._speed_test = SpeedTest()
-        
+
         # Initialize keyboard shortcuts
         from app.shortcuts import ShortcutManager
+
         self._shortcut_manager = ShortcutManager()
         self._register_shortcuts()
 
@@ -200,15 +198,16 @@ class NetworkMonitorApp(rumps.App):
         """Register global keyboard shortcuts."""
         try:
             shortcut = self.settings.get_keyboard_shortcut()
-            
+
             # Register menu toggle shortcut
             success = self._shortcut_manager.register_shortcut(
-                shortcut,
-                lambda: self._toggle_menu_visibility()
+                shortcut, lambda: self._toggle_menu_visibility()
             )
-            
+
             if not success:
-                logger.warning("Could not register keyboard shortcut - may need Accessibility permissions")
+                logger.warning(
+                    "Could not register keyboard shortcut - may need Accessibility permissions"
+                )
         except Exception as e:
             logger.debug(f"Shortcut registration failed: {e}")
 
@@ -243,7 +242,9 @@ class NetworkMonitorApp(rumps.App):
 
         # === NETWORK DEVICES (dynamically populated) ===
         self.menu_devices = rumps.MenuItem("Devices")
-        self.menu_devices.add(rumps.MenuItem("Scanning..."))  # Placeholder to make submenu clickable
+        self.menu_devices.add(
+            rumps.MenuItem("Scanning...")
+        )  # Placeholder to make submenu clickable
 
         # === TOP APPS (dynamically populated) ===
         self.menu_apps = rumps.MenuItem("Connections")
@@ -268,7 +269,9 @@ class NetworkMonitorApp(rumps.App):
 
         # === RECENT EVENTS ===
         self.menu_events = rumps.MenuItem("Recent Events")
-        self.menu_events.add(rumps.MenuItem("No recent events"))  # Placeholder to make submenu clickable
+        self.menu_events.add(
+            rumps.MenuItem("No recent events")
+        )  # Placeholder to make submenu clickable
 
         # === SETTINGS SUBMENU ===
         self.menu_settings = rumps.MenuItem("Settings")
@@ -276,8 +279,7 @@ class NetworkMonitorApp(rumps.App):
         # Launch at login
         self.launch_manager = get_launch_agent_manager()
         self.menu_launch_login = rumps.MenuItem(
-            self.launch_manager.get_status(),
-            callback=self._toggle_launch_at_login
+            self.launch_manager.get_status(), callback=self._toggle_launch_at_login
         )
         self.menu_settings.add(self.menu_launch_login)
         self.menu_settings.add(rumps.separator)
@@ -287,7 +289,9 @@ class NetworkMonitorApp(rumps.App):
         current_mode = self.settings.get_title_display()
         for mode, label in self.settings.get_title_display_options():
             check = "✓ " if mode == current_mode else "   "
-            item = rumps.MenuItem(f"{check}{label}", callback=lambda s, m=mode: self._set_title_display(m))
+            item = rumps.MenuItem(
+                f"{check}{label}", callback=lambda s, m=mode: self._set_title_display(m)
+            )
             self.menu_title_display.add(item)
         self.menu_settings.add(self.menu_title_display)
         self.menu_settings.add(rumps.separator)
@@ -301,23 +305,33 @@ class NetworkMonitorApp(rumps.App):
         self.menu_actions = rumps.MenuItem("Actions")
         self.menu_rescan = rumps.MenuItem("Rescan Network", callback=self._rescan_network)
         self.menu_speed_test = rumps.MenuItem("Run Speed Test...", callback=self._run_speed_test)
-        self.menu_show_graphs = rumps.MenuItem("Show Detailed Stats...", callback=self._show_detailed_graphs)
+        self.menu_show_graphs = rumps.MenuItem(
+            "Show Detailed Stats...", callback=self._show_detailed_graphs
+        )
         self.menu_reset_session = rumps.MenuItem("Reset Session", callback=self._reset_session)
         self.menu_reset_today = rumps.MenuItem("Reset Today", callback=self._reset_today)
-        self.menu_data_location = rumps.MenuItem("Open Data Folder", callback=self._open_data_folder)
+        self.menu_data_location = rumps.MenuItem(
+            "Open Data Folder", callback=self._open_data_folder
+        )
 
         # Export submenu
         self.menu_export = rumps.MenuItem("Export Data")
         self.menu_export.add(rumps.MenuItem("Export as CSV...", callback=self._export_csv))
         self.menu_export.add(rumps.MenuItem("Export as JSON...", callback=self._export_json))
         self.menu_export.add(rumps.separator)
-        self.menu_export.add(rumps.MenuItem("Export to InfluxDB...", callback=self._export_to_influxdb))
-        self.menu_export.add(rumps.MenuItem("Export to Prometheus...", callback=self._export_to_prometheus))
+        self.menu_export.add(
+            rumps.MenuItem("Export to InfluxDB...", callback=self._export_to_influxdb)
+        )
+        self.menu_export.add(
+            rumps.MenuItem("Export to Prometheus...", callback=self._export_to_prometheus)
+        )
 
         # Backup/Restore submenu
         self.menu_backup = rumps.MenuItem("Backup & Restore")
         self.menu_backup.add(rumps.MenuItem("Create Backup...", callback=self._create_backup))
-        self.menu_backup.add(rumps.MenuItem("Restore from Backup...", callback=self._restore_backup))
+        self.menu_backup.add(
+            rumps.MenuItem("Restore from Backup...", callback=self._restore_backup)
+        )
         self.menu_backup.add(rumps.separator)
         self.menu_backup.add(rumps.MenuItem("Database Info...", callback=self._show_database_info))
         self.menu_backup.add(rumps.MenuItem("Run Cleanup Now", callback=self._run_cleanup))
@@ -367,7 +381,7 @@ class NetworkMonitorApp(rumps.App):
             self.menu_actions,
             rumps.separator,
             rumps.MenuItem("About", callback=self._show_about),
-            rumps.MenuItem("Quit", callback=self._quit)
+            rumps.MenuItem("Quit", callback=self._quit),
         ]
 
     def _subscribe_to_events(self):
@@ -380,7 +394,9 @@ class NetworkMonitorApp(rumps.App):
         self._event_bus.subscribe(EventType.LATENCY_UPDATE, self._on_latency_update)
         self._event_bus.subscribe(EventType.BUDGET_WARNING, self._on_budget_warning)
         self._event_bus.subscribe(EventType.BUDGET_EXCEEDED, self._on_budget_exceeded)
-        self._event_bus.subscribe(EventType.BANDWIDTH_THRESHOLD_EXCEEDED, self._on_bandwidth_threshold_exceeded)
+        self._event_bus.subscribe(
+            EventType.BANDWIDTH_THRESHOLD_EXCEEDED, self._on_bandwidth_threshold_exceeded
+        )
         self._event_bus.subscribe(EventType.DEVICE_NEWLY_ONLINE, self._on_device_newly_online)
         self._event_bus.subscribe(EventType.QUALITY_DEGRADED, self._on_quality_degraded)
         self._event_bus.subscribe(EventType.VPN_DISCONNECTED, self._on_vpn_disconnected)
@@ -402,49 +418,47 @@ class NetworkMonitorApp(rumps.App):
     def _on_devices_scanned(self, event):
         """Handle devices scanned event from controller."""
         data = event.data
-        online = data.get('online', 0)
-        total = data.get('total', 0)
+        online = data.get("online", 0)
+        total = data.get("total", 0)
         logger.debug(f"Devices scanned: {online} online / {total} total")
 
     def _on_latency_update(self, event):
         """Handle latency update event from controller."""
         data = event.data
-        latency = data.get('latency')
+        latency = data.get("latency")
         if latency is not None:
             self._current_latency = latency
 
     def _on_budget_warning(self, event):
         """Handle budget warning event from controller."""
         data = event.data
-        conn = data.get('connection', 'Unknown')
-        percent = data.get('percent', 0)
+        conn = data.get("connection", "Unknown")
+        percent = data.get("percent", 0)
         rumps.notification(
             title="Data Budget Warning",
             subtitle=conn,
-            message=f"You've used {percent:.0f}% of your budget"
+            message=f"You've used {percent:.0f}% of your budget",
         )
 
     def _on_budget_exceeded(self, event):
         """Handle budget exceeded event from controller."""
         data = event.data
-        conn = data.get('connection', 'Unknown')
+        conn = data.get("connection", "Unknown")
         rumps.notification(
-            title="Data Budget Exceeded",
-            subtitle=conn,
-            message="You've exceeded your data budget!"
+            title="Data Budget Exceeded", subtitle=conn, message="You've exceeded your data budget!"
         )
 
     def _on_bandwidth_threshold_exceeded(self, event):
         """Handle bandwidth threshold exceeded event."""
         data = event.data
-        app_name = data.get('app_name', 'Unknown')
-        current_mbps = data.get('current_mbps', 0)
-        threshold_mbps = data.get('threshold_mbps', 0)
+        app_name = data.get("app_name", "Unknown")
+        current_mbps = data.get("current_mbps", 0)
+        threshold_mbps = data.get("threshold_mbps", 0)
         rumps.notification(
             title="Bandwidth Alert",
             subtitle=app_name,
             message=f"Using {current_mbps:.1f} Mbps (threshold: {threshold_mbps:.1f} Mbps)",
-            sound=True
+            sound=True,
         )
 
     def _on_device_newly_online(self, event):
@@ -452,15 +466,15 @@ class NetworkMonitorApp(rumps.App):
         notif_settings = self.settings.get_notification_settings()
         if not notif_settings.notify_new_device:
             return
-        
+
         data = event.data
-        device_name = data.get('name', 'Unknown Device')
-        device_ip = data.get('ip', '')
+        device_name = data.get("name", "Unknown Device")
+        device_ip = data.get("ip", "")
         rumps.notification(
             title="New Device Detected",
             subtitle=device_name,
             message=f"Device {device_ip} joined the network",
-            sound=False
+            sound=False,
         )
 
     def _on_quality_degraded(self, event):
@@ -468,18 +482,18 @@ class NetworkMonitorApp(rumps.App):
         notif_settings = self.settings.get_notification_settings()
         if not notif_settings.notify_quality_degraded:
             return
-        
+
         data = event.data
-        previous_score = data.get('previous_score', 0)
-        current_score = data.get('current_score', 0)
-        
+        previous_score = data.get("previous_score", 0)
+        current_score = data.get("current_score", 0)
+
         # Only notify if quality dropped below threshold
         if current_score < notif_settings.quality_degraded_threshold:
             rumps.notification(
                 title="Network Quality Degraded",
                 subtitle=f"Quality: {current_score}%",
                 message=f"Quality dropped from {previous_score}% to {current_score}%",
-                sound=True
+                sound=True,
             )
 
     def _on_vpn_disconnected(self, event):
@@ -487,38 +501,38 @@ class NetworkMonitorApp(rumps.App):
         notif_settings = self.settings.get_notification_settings()
         if not notif_settings.notify_vpn_disconnect:
             return
-        
+
         data = event.data
-        vpn_name = data.get('previous_vpn_name', 'VPN')
+        vpn_name = data.get("previous_vpn_name", "VPN")
         rumps.notification(
             title="VPN Disconnected",
             subtitle=vpn_name,
             message="Your VPN connection was lost",
-            sound=True
+            sound=True,
         )
 
     def _on_dns_update(self, event):
         """Handle DNS update event."""
         data = event.data
-        latency = data.get('latency_ms')
+        latency = data.get("latency_ms")
         if latency is not None:
             self._current_dns_latency = latency
 
     def _on_dns_slow(self, event):
         """Handle DNS slow event."""
         data = event.data
-        latency = data.get('latency_ms', 0)
-        threshold = data.get('threshold_ms', 200)
+        latency = data.get("latency_ms", 0)
+        threshold = data.get("threshold_ms", 200)
         rumps.notification(
             title="Slow DNS Detected",
             subtitle=f"DNS: {latency:.0f}ms",
             message=f"DNS resolution is slow (threshold: {threshold:.0f}ms)",
-            sound=False
+            sound=False,
         )
 
     def _start_monitoring(self):
         """Initialize monitoring and start timer.
-        
+
         Note: Timers are started via a delayed mechanism because menu items
         don't have their underlying NSMenuItem objects until after rumps.run().
         """
@@ -539,7 +553,7 @@ class NetworkMonitorApp(rumps.App):
         self._timers_started = True
 
         # Stop the startup timer (we only needed it once)
-        if hasattr(self, '_startup_timer') and self._startup_timer:
+        if hasattr(self, "_startup_timer") and self._startup_timer:
             self._startup_timer.stop()
             self._startup_timer = None
 
@@ -583,7 +597,7 @@ class NetworkMonitorApp(rumps.App):
                 self._update_sparklines(stats)
 
             # Periodically save sparkline history (every 60 seconds)
-            self._sparkline_save_counter = getattr(self, '_sparkline_save_counter', 0) + 1
+            self._sparkline_save_counter = getattr(self, "_sparkline_save_counter", 0) + 1
             if self._sparkline_save_counter >= 60:
                 self._sparkline_save_counter = 0
                 self._save_sparkline_history()
@@ -592,7 +606,7 @@ class NetworkMonitorApp(rumps.App):
 
     def _calculate_adaptive_interval(self) -> float:
         """Calculate the appropriate update interval based on recent activity.
-        
+
         Returns faster intervals during high network activity, slower during idle.
         """
         if not self._activity_samples:
@@ -630,9 +644,7 @@ class NetworkMonitorApp(rumps.App):
         # Check for connection changes
         if conn_key != self._last_connection_key:
             if self._last_connection_key:
-                self.issue_detector.log_connection_change(
-                    self._last_connection_key, conn_key
-                )
+                self.issue_detector.log_connection_change(self._last_connection_key, conn_key)
             self._last_connection_key = conn_key
             self._connection_start_bytes = self.network_stats.get_session_totals()
 
@@ -695,18 +707,13 @@ class NetworkMonitorApp(rumps.App):
                 delta_recv = max(0, conn_recv - last_recv)
 
                 if delta_sent > 0 or delta_recv > 0:
-                    self.store.update_stats(
-                        conn_key,
-                        delta_sent,
-                        delta_recv,
-                        peak_up,
-                        peak_down
-                    )
+                    self.store.update_stats(conn_key, delta_sent, delta_recv, peak_up, peak_down)
                     self._last_stored_bytes[conn_key] = (conn_sent, conn_recv)
 
             # Update menu items (on main thread via rumps timer)
-            self._update_menu(conn, stats, avg_up, avg_down, peak_up, peak_down,
-                            conn_sent, conn_recv)
+            self._update_menu(
+                conn, stats, avg_up, avg_down, peak_up, peak_down, conn_sent, conn_recv
+            )
 
     def _scan_devices(self):
         """Scan for network devices (runs in background thread)."""
@@ -738,24 +745,25 @@ class NetworkMonitorApp(rumps.App):
 
     def _create_gauge_icon(self, color: str, size: int = 18) -> str:
         """Create a gauge/speedometer icon colored by latency status.
-        
+
         Inspired by Font Awesome gauge-high icon.
         Returns path to PNG file.
         """
         import math
 
         from PIL import Image, ImageDraw
+
         from app.sparkline_renderer import _get_appearance_mode
 
         # Color mapping - adjust for dark mode
         appearance_mode = _get_appearance_mode()
-        if appearance_mode == 'dark':
+        if appearance_mode == "dark":
             # Slightly brighter colors for dark mode
             colors = {
                 "green": "#4CD964",  # Brighter green
                 "yellow": "#FFCC00",  # Brighter yellow
-                "red": "#FF3B30",     # Same red
-                "gray": "#8E8E93",     # Same gray
+                "red": "#FF3B30",  # Same red
+                "gray": "#8E8E93",  # Same gray
             }
         else:
             # Light mode colors
@@ -768,7 +776,7 @@ class NetworkMonitorApp(rumps.App):
         fill_color = colors.get(color, colors["gray"])
 
         # Create image with transparency
-        img = Image.new('RGBA', (size, size), (0, 0, 0, 0))
+        img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
         draw = ImageDraw.Draw(img)
 
         # Draw gauge arc (speedometer shape)
@@ -798,23 +806,25 @@ class NetworkMonitorApp(rumps.App):
 
         # Draw center dot
         dot_r = 2
-        draw.ellipse([center_x - dot_r, center_y - dot_r,
-                      center_x + dot_r, center_y + dot_r], fill=fill_color)
+        draw.ellipse(
+            [center_x - dot_r, center_y - dot_r, center_x + dot_r, center_y + dot_r],
+            fill=fill_color,
+        )
 
         # Save to temp file
         temp_dir = Path(tempfile.gettempdir()) / STORAGE.ICON_TEMP_DIR
         temp_dir.mkdir(exist_ok=True)
-        img_path = temp_dir / f'gauge_{color}.png'
-        img.save(str(img_path), 'PNG')
+        img_path = temp_dir / f"gauge_{color}.png"
+        img.save(str(img_path), "PNG")
 
         return str(img_path)
 
     def _update_title(self, stats):
         """Update menu bar title and icon based on settings.
-        
+
         Uses gauge icon colored by latency status:
         - Green: Good (latency < 50ms)
-        - Yellow: OK (latency 50-100ms)  
+        - Yellow: OK (latency 50-100ms)
         - Red: Poor (latency > 100ms)
         """
         display_mode = self.settings.get_title_display()
@@ -873,8 +883,17 @@ class NetworkMonitorApp(rumps.App):
         else:
             self.title = "--"
 
-    def _update_menu(self, conn: ConnectionInfo, stats, avg_up: float, avg_down: float,
-                    peak_up: float, peak_down: float, session_sent: int, session_recv: int):
+    def _update_menu(
+        self,
+        conn: ConnectionInfo,
+        stats,
+        avg_up: float,
+        avg_down: float,
+        peak_up: float,
+        peak_down: float,
+        session_sent: int,
+        session_recv: int,
+    ):
         """Update menu item text."""
         # VPN status (check first so we can show in connection line)
         self._update_vpn_status()
@@ -889,15 +908,15 @@ class NetworkMonitorApp(rumps.App):
                 # Convert dBm to bars (approximate)
                 rssi = conn.wifi_signal_strength
                 if rssi >= -50:
-                    signal_str = " 📶●●●"
+                    signal_str = " ◆●●●"
                 elif rssi >= -60:
-                    signal_str = " 📶●●○"
+                    signal_str = " ◆●●○"
                 elif rssi >= -70:
-                    signal_str = " 📶●○○"
+                    signal_str = " ◆●○○"
                 elif rssi >= -80:
-                    signal_str = " 📶○○○"
+                    signal_str = " ◆○○○"
                 else:
-                    signal_str = " 📶"
+                    signal_str = " ◆"
             if self._vpn_active:
                 self.menu_connection.title = f"🔒 {name} ({ip}){signal_str}"
             else:
@@ -940,10 +959,9 @@ class NetworkMonitorApp(rumps.App):
         # Update events
         self._update_events()
 
-
     def _set_menu_image(self, menu_item, image_path: str, title: str = None):
         """Set an image on a menu item using AppKit with live refresh.
-        
+
         Args:
             menu_item: The rumps MenuItem
             image_path: Path to the image file
@@ -960,7 +978,7 @@ class NetworkMonitorApp(rumps.App):
 
             # For images, we need the NSMenuItem object which is only available
             # after the menu is built and the app is running
-            ns_item = getattr(menu_item, '_menuitem', None)
+            ns_item = getattr(menu_item, "_menuitem", None)
             if ns_item is None:
                 # Menu not built yet, title update via rumps is enough
                 return
@@ -982,15 +1000,16 @@ class NetworkMonitorApp(rumps.App):
     def _update_sparklines(self, stats):
         """Update the sparkline graph display with matplotlib line graphs."""
         # Get appearance-aware colors
-        from app.sparkline_renderer import _get_appearance_mode, _get_appearance_colors
+        from app.sparkline_renderer import _get_appearance_colors, _get_appearance_mode
+
         appearance_mode = _get_appearance_mode()
         colors = _get_appearance_colors(appearance_mode)
-        
+
         # Colors for each metric - use appearance-aware colors
-        quality_color = colors['quality']
-        up_color = colors['upload']
-        down_color = colors['download']
-        lat_color = colors['latency']
+        quality_color = colors["quality"]
+        up_color = colors["upload"]
+        down_color = colors["download"]
+        lat_color = colors["latency"]
 
         # Get copies of history data (thread-safe)
         with self._sparkline_lock:
@@ -1031,7 +1050,7 @@ class NetworkMonitorApp(rumps.App):
         # Total (combined) sparkline
         total_cur = (stats.upload_speed + stats.download_speed) if stats else 0
         total_title = f"  ⇅  {format_bytes(total_cur, True)}"
-        total_color = colors['total']  # Use appearance-aware color
+        total_color = colors["total"]  # Use appearance-aware color
         if total_history:
             total_img = self._sparkline_renderer.create_image(total_history, total_color)
             self._set_menu_image(self.menu_graph_total, total_img, total_title)
@@ -1048,7 +1067,7 @@ class NetworkMonitorApp(rumps.App):
             self.menu_graph_latency.title = lat_title
 
         # DNS sparkline
-        dns_color = colors['latency']  # Use same color as latency (appearance-aware)
+        dns_color = colors["latency"]  # Use same color as latency (appearance-aware)
         dns_cur = self._current_dns_latency if self._current_dns_latency else 0
         dns_title = f"  🔍  {dns_cur:.0f}ms"
         if dns_history:
@@ -1092,7 +1111,7 @@ class NetworkMonitorApp(rumps.App):
             with self._sparkline_lock:
                 if not self._dns_history or self._dns_history[-1] != dns_latency:
                     self._dns_history.append(dns_latency)
-            
+
             # Calculate average
             avg_dns = self._deps.dns_monitor.get_average_dns_latency()
             if avg_dns is not None:
@@ -1117,7 +1136,7 @@ class NetworkMonitorApp(rumps.App):
 
     def _update_vpn_status(self):
         """Update VPN status detection.
-        
+
         VPN status is shown inline with connection info.
         """
         import time as time_module
@@ -1134,7 +1153,7 @@ class NetworkMonitorApp(rumps.App):
 
     def _update_quality_score(self):
         """Update network quality score.
-        
+
         Score is 0-100 based on:
         - Latency (40% weight): <30ms=100, >200ms=0
         - Jitter (30% weight): Latency variance
@@ -1161,8 +1180,10 @@ class NetworkMonitorApp(rumps.App):
         # Calculate jitter score (30%) - lower variance is better
         if len(self._latency_samples) >= 2:
             mean = avg_latency
-            variance = sum((x - mean) ** 2 for x in self._latency_samples) / len(self._latency_samples)
-            jitter = variance ** 0.5  # Standard deviation
+            variance = sum((x - mean) ** 2 for x in self._latency_samples) / len(
+                self._latency_samples
+            )
+            jitter = variance**0.5  # Standard deviation
 
             if jitter <= 5:
                 jitter_score = 100
@@ -1180,7 +1201,9 @@ class NetworkMonitorApp(rumps.App):
                 # Coefficient of variation (lower is more consistent)
                 mean_activity = sum(activity_list) / len(activity_list)
                 if mean_activity > 0:
-                    std_activity = (sum((x - mean_activity) ** 2 for x in activity_list) / len(activity_list)) ** 0.5
+                    std_activity = (
+                        sum((x - mean_activity) ** 2 for x in activity_list) / len(activity_list)
+                    ) ** 0.5
                     cv = std_activity / mean_activity
                     # CV of 0 = 100 score, CV of 2+ = 0 score
                     consistency_score = max(0, 100 - cv * 50)
@@ -1193,9 +1216,7 @@ class NetworkMonitorApp(rumps.App):
 
         # Weighted average
         self._quality_score = int(
-            latency_score * 0.4 +
-            jitter_score * 0.3 +
-            consistency_score * 0.3
+            latency_score * 0.4 + jitter_score * 0.3 + consistency_score * 0.3
         )
 
         # Track quality history for sparkline (thread-safe)
@@ -1222,13 +1243,13 @@ class NetworkMonitorApp(rumps.App):
         jitter = None
         if len(self._latency_samples) >= 2:
             mean = avg_latency
-            variance = sum((x - mean) ** 2 for x in self._latency_samples) / len(self._latency_samples)
-            jitter = variance ** 0.5
+            variance = sum((x - mean) ** 2 for x in self._latency_samples) / len(
+                self._latency_samples
+            )
+            jitter = variance**0.5
 
         quality_issue = self.issue_detector.check_quality_drop(
-            self._quality_score,
-            latency=avg_latency,
-            jitter=jitter
+            self._quality_score, latency=avg_latency, jitter=jitter
         )
         if quality_issue:
             logger.warning(f"Quality drop detected: {quality_issue.description}")
@@ -1237,12 +1258,12 @@ class NetworkMonitorApp(rumps.App):
         """Update history section with weekly and monthly stats."""
         # Get weekly totals
         weekly = self.store.get_weekly_totals()
-        week_total = weekly['sent'] + weekly['recv']
+        week_total = weekly["sent"] + weekly["recv"]
         self.menu_week.title = f"Week: ↑ {format_bytes(weekly['sent'])}  ↓ {format_bytes(weekly['recv'])}  ⇅ {format_bytes(week_total)}"
 
         # Get monthly totals
         monthly = self.store.get_monthly_totals()
-        month_total = monthly['sent'] + monthly['recv']
+        month_total = monthly["sent"] + monthly["recv"]
         self.menu_month.title = f"Month: ↑ {format_bytes(monthly['sent'])}  ↓ {format_bytes(monthly['recv'])}  ⇅ {format_bytes(month_total)}"
 
         # Update daily breakdown submenu
@@ -1257,27 +1278,30 @@ class NetworkMonitorApp(rumps.App):
 
         daily = self.store.get_daily_totals(days=7)
 
-        if not daily or all(d['sent'] == 0 and d['recv'] == 0 for d in daily):
+        if not daily or all(d["sent"] == 0 and d["recv"] == 0 for d in daily):
             self.menu_daily_history.add(rumps.MenuItem("No history yet"))
             return
 
         for day_data in daily:
-            date_str = day_data['date']
+            date_str = day_data["date"]
             # Format date nicely
             try:
                 from datetime import datetime
+
                 dt = datetime.fromisoformat(date_str)
-                if date_str == datetime.now().strftime('%Y-%m-%d'):
+                if date_str == datetime.now().strftime("%Y-%m-%d"):
                     day_label = "Today"
-                elif date_str == (datetime.now() - __import__('datetime').timedelta(days=1)).strftime('%Y-%m-%d'):
+                elif date_str == (
+                    datetime.now() - __import__("datetime").timedelta(days=1)
+                ).strftime("%Y-%m-%d"):
                     day_label = "Yesterday"
                 else:
-                    day_label = dt.strftime('%a %d')  # e.g., "Mon 20"
+                    day_label = dt.strftime("%a %d")  # e.g., "Mon 20"
             except (ValueError, TypeError, AttributeError):
                 day_label = date_str
 
-            sent = day_data['sent']
-            recv = day_data['recv']
+            sent = day_data["sent"]
+            recv = day_data["recv"]
 
             if sent > 0 or recv > 0:
                 total = sent + recv
@@ -1292,7 +1316,7 @@ class NetworkMonitorApp(rumps.App):
         self._safe_menu_clear(self.menu_connection_history)
 
         # Get unique connections from monthly data
-        connections = monthly.get('by_connection', {})
+        connections = monthly.get("by_connection", {})
 
         if not connections:
             self.menu_connection_history.add(rumps.MenuItem("No connections recorded"))
@@ -1300,9 +1324,7 @@ class NetworkMonitorApp(rumps.App):
 
         # Sort by total traffic
         sorted_conns = sorted(
-            connections.items(),
-            key=lambda x: x[1]['sent'] + x[1]['recv'],
-            reverse=True
+            connections.items(), key=lambda x: x[1]["sent"] + x[1]["recv"], reverse=True
         )
 
         for conn_key, stats in sorted_conns[:10]:
@@ -1310,42 +1332,49 @@ class NetworkMonitorApp(rumps.App):
             conn_menu = rumps.MenuItem(f"{conn_key}")
 
             # Add monthly total
-            conn_menu.add(rumps.MenuItem(
-                f"Month: ↑{format_bytes(stats['sent'])} ↓{format_bytes(stats['recv'])} ⇅{format_bytes(stats['sent'] + stats['recv'])}"
-            ))
+            conn_menu.add(
+                rumps.MenuItem(
+                    f"Month: ↑{format_bytes(stats['sent'])} ↓{format_bytes(stats['recv'])} ⇅{format_bytes(stats['sent'] + stats['recv'])}"
+                )
+            )
 
             # Add weekly total if available
-            weekly_stats = weekly.get('by_connection', {}).get(conn_key, {'sent': 0, 'recv': 0})
-            conn_menu.add(rumps.MenuItem(
-                f"Week: ↑{format_bytes(weekly_stats['sent'])} ↓{format_bytes(weekly_stats['recv'])} ⇅{format_bytes(weekly_stats['sent'] + weekly_stats['recv'])}"
-            ))
+            weekly_stats = weekly.get("by_connection", {}).get(conn_key, {"sent": 0, "recv": 0})
+            conn_menu.add(
+                rumps.MenuItem(
+                    f"Week: ↑{format_bytes(weekly_stats['sent'])} ↓{format_bytes(weekly_stats['recv'])} ⇅{format_bytes(weekly_stats['sent'] + weekly_stats['recv'])}"
+                )
+            )
 
             # Add daily breakdown for this connection
             conn_menu.add(rumps.separator)
             daily_history = self.store.get_connection_history(conn_key, days=7)
             for day_data in daily_history[:5]:
-                date_str = day_data['date']
+                date_str = day_data["date"]
                 try:
                     from datetime import datetime
+
                     dt = datetime.fromisoformat(date_str)
-                    if date_str == datetime.now().strftime('%Y-%m-%d'):
+                    if date_str == datetime.now().strftime("%Y-%m-%d"):
                         day_label = "Today"
                     else:
-                        day_label = dt.strftime('%a')
+                        day_label = dt.strftime("%a")
                 except (ValueError, TypeError, AttributeError):
                     day_label = date_str[:5]
 
-                if day_data['sent'] > 0 or day_data['recv'] > 0:
-                    conn_menu.add(rumps.MenuItem(
-                        f"{day_label}: ↑{format_bytes(day_data['sent'])} ↓{format_bytes(day_data['recv'])} ⇅{format_bytes(day_data['sent'] + day_data['recv'])}"
-                    ))
+                if day_data["sent"] > 0 or day_data["recv"] > 0:
+                    conn_menu.add(
+                        rumps.MenuItem(
+                            f"{day_label}: ↑{format_bytes(day_data['sent'])} ↓{format_bytes(day_data['recv'])} ⇅{format_bytes(day_data['sent'] + day_data['recv'])}"
+                        )
+                    )
 
             self.menu_connection_history.add(conn_menu)
 
     def _safe_menu_clear(self, menu_item):
         """Safely clear a menu item's submenu contents."""
         try:
-            if menu_item and hasattr(menu_item, '_menu') and menu_item._menu:
+            if menu_item and hasattr(menu_item, "_menu") and menu_item._menu:
                 menu_item.clear()
         except (AttributeError, TypeError):
             pass  # Menu not properly initialized yet
@@ -1381,7 +1410,7 @@ class NetworkMonitorApp(rumps.App):
 
     def _update_events(self):
         """Update recent events menu - dynamically populated.
-        
+
         Quality drop events are clickable to show troubleshooting info.
         """
 
@@ -1405,12 +1434,12 @@ class NetworkMonitorApp(rumps.App):
             if issue.issue_type == IssueType.QUALITY_DROP:
                 item = rumps.MenuItem(
                     f"⚠️ {time_str}  {desc}",
-                    callback=lambda _, i=issue: self._show_troubleshooting(i)
+                    callback=lambda _, i=issue: self._show_troubleshooting(i),
                 )
             elif issue.issue_type == IssueType.HIGH_LATENCY:
                 item = rumps.MenuItem(
                     f"🔴 {time_str}  {desc}",
-                    callback=lambda _, i=issue: self._show_troubleshooting(i)
+                    callback=lambda _, i=issue: self._show_troubleshooting(i),
                 )
             elif issue.issue_type == IssueType.DISCONNECT:
                 item = rumps.MenuItem(f"❌ {time_str}  {desc}")
@@ -1434,28 +1463,28 @@ class NetworkMonitorApp(rumps.App):
         if issue.issue_type == IssueType.QUALITY_DROP:
             lines.append(f"Previous Score: {details.get('previous_score', 'N/A')}%")
             lines.append(f"Current Score: {details.get('current_score', 'N/A')}%")
-            if details.get('latency_ms'):
+            if details.get("latency_ms"):
                 lines.append(f"Latency: {details['latency_ms']:.0f}ms")
-            if details.get('jitter_ms'):
+            if details.get("jitter_ms"):
                 lines.append(f"Jitter: {details['jitter_ms']:.1f}ms")
 
-            cause = details.get('likely_cause', 'unknown')
+            cause = details.get("likely_cause", "unknown")
             cause_labels = {
-                'high_latency': 'High Latency',
-                'high_jitter': 'Unstable Connection',
-                'poor_connection': 'Poor Connection Quality',
-                'network_congestion': 'Network Congestion'
+                "high_latency": "High Latency",
+                "high_jitter": "Unstable Connection",
+                "poor_connection": "Poor Connection Quality",
+                "network_congestion": "Network Congestion",
             }
             lines.append(f"\nLikely Cause: {cause_labels.get(cause, cause)}")
 
-            tips = details.get('troubleshooting', [])
+            tips = details.get("troubleshooting", [])
             if tips:
                 lines.append("\nTroubleshooting Tips:")
                 for tip in tips[:5]:
                     lines.append(f"  • {tip}")
 
         elif issue.issue_type == IssueType.HIGH_LATENCY:
-            if details.get('latency_ms'):
+            if details.get("latency_ms"):
                 lines.append(f"Latency: {details['latency_ms']:.0f}ms")
             lines.append("\nTroubleshooting Tips:")
             lines.append("  • Check for bandwidth-heavy applications")
@@ -1463,11 +1492,7 @@ class NetworkMonitorApp(rumps.App):
             lines.append("  • Move closer to WiFi access point")
             lines.append("  • Consider using wired connection")
 
-        rumps.alert(
-            title="Network Issue Details",
-            message="\n".join(lines),
-            ok="OK"
-        )
+        rumps.alert(title="Network Issue Details", message="\n".join(lines), ok="OK")
 
     def _format_device_name(self, device: NetworkDevice, include_ip: bool = True) -> str:
         """Get best available identifier for a device with type icon."""
@@ -1488,7 +1513,7 @@ class NetworkMonitorApp(rumps.App):
 
     def _update_top_devices(self):
         """Update devices menu - dynamically populated with device type icons.
-        
+
         Click on any device to rename it.
         Uses lazy hostname resolution - only resolves hostnames for visible devices.
         """
@@ -1498,6 +1523,7 @@ class NetworkMonitorApp(rumps.App):
 
         # Sort: devices with custom names first, then better identification
         from monitor.scanner import DeviceType
+
         def sort_key(d):
             has_custom = bool(d.custom_name)
             has_model = bool(d.model_hint)
@@ -1524,10 +1550,7 @@ class NetworkMonitorApp(rumps.App):
         # Helper to create device menu item with rename callback
         def make_device_item(device, prefix=""):
             name = self._format_device_name(device)
-            item = rumps.MenuItem(
-                f"{prefix}{name}",
-                callback=lambda _: self._rename_device(device)
-            )
+            item = rumps.MenuItem(f"{prefix}{name}", callback=lambda _: self._rename_device(device))
             return item
 
         # Add all online devices in a flat list
@@ -1546,43 +1569,60 @@ class NetworkMonitorApp(rumps.App):
         """Update connection locations menu with geolocation data."""
         try:
             countries_per_app = self._deps.connection_tracker.get_countries_per_app()
-            
+
             self._safe_menu_clear(self.menu_locations)
-            
+
             if not countries_per_app:
                 self.menu_locations.title = "Connection Locations"
                 self.menu_locations.add(rumps.MenuItem("No external connections"))
                 return
-            
+
             # Country flag emoji mapping
             flag_map = {
-                'US': '🇺🇸', 'GB': '🇬🇧', 'DE': '🇩🇪', 'FR': '🇫🇷',
-                'CA': '🇨🇦', 'AU': '🇦🇺', 'JP': '🇯🇵', 'CN': '🇨🇳',
-                'IN': '🇮🇳', 'BR': '🇧🇷', 'MX': '🇲🇽', 'IT': '🇮🇹',
-                'ES': '🇪🇸', 'NL': '🇳🇱', 'SE': '🇸🇪', 'NO': '🇳🇴',
-                'DK': '🇩🇰', 'FI': '🇫🇮', 'PL': '🇵🇱', 'RU': '🇷🇺',
+                "US": "🇺🇸",
+                "GB": "🇬🇧",
+                "DE": "🇩🇪",
+                "FR": "🇫🇷",
+                "CA": "🇨🇦",
+                "AU": "🇦🇺",
+                "JP": "🇯🇵",
+                "CN": "🇨🇳",
+                "IN": "🇮🇳",
+                "BR": "🇧🇷",
+                "MX": "🇲🇽",
+                "IT": "🇮🇹",
+                "ES": "🇪🇸",
+                "NL": "🇳🇱",
+                "SE": "🇸🇪",
+                "NO": "🇳🇴",
+                "DK": "🇩🇰",
+                "FI": "🇫🇮",
+                "PL": "🇵🇱",
+                "RU": "🇷🇺",
             }
-            
+
             # Get country names
             geoloc = self._deps.geolocation_service
-            
-            for app_name, country_codes in sorted(countries_per_app.items(), key=lambda x: len(x[1]), reverse=True):
+
+            for app_name, country_codes in sorted(
+                countries_per_app.items(), key=lambda x: len(x[1]), reverse=True
+            ):
                 if not country_codes:
                     continue
-                
+
                 # Format countries with flags
                 country_display = []
                 for code in country_codes[:5]:  # Limit to 5 countries per app
-                    flag = flag_map.get(code, '🌍')
+                    flag = flag_map.get(code, "🌍")
                     name = geoloc.get_country_name(code)
                     country_display.append(f"{flag} {name}")
-                
+
                 if len(country_codes) > 5:
                     country_display.append(f"... ({len(country_codes) - 5} more)")
-                
+
                 title = f"{app_name}: {', '.join(country_display)}"
                 self.menu_locations.add(rumps.MenuItem(title))
-            
+
             if not self.menu_locations._menu or len(self.menu_locations._menu) == 0:
                 self.menu_locations.title = "Connection Locations"
                 self.menu_locations.add(rumps.MenuItem("No external connections"))
@@ -1602,26 +1642,20 @@ class NetworkMonitorApp(rumps.App):
             message=f"MAC: {device.mac_address}\nIP: {device.ip_address}\nVendor: {device.vendor or 'Unknown'}\n\nEnter a name for this device:",
             default_text=current_name,
             ok="Save",
-            cancel="Cancel"
+            cancel="Cancel",
         ).run()
 
         if response.clicked:
             new_name = response.text.strip()
             if new_name:
                 self.network_scanner.set_device_name(device.mac_address, new_name)
-                rumps.notification(
-                    "Network Monitor",
-                    "Device Renamed",
-                    f"{new_name}"
-                )
+                rumps.notification("Network Monitor", "Device Renamed", f"{new_name}")
             else:
                 # Clear custom name if empty
                 self.network_scanner._name_store.remove_name(device.mac_address)
                 device.custom_name = None
                 rumps.notification(
-                    "Network Monitor",
-                    "Device Name Cleared",
-                    "Using auto-detected name"
+                    "Network Monitor", "Device Name Cleared", "Using auto-detected name"
                 )
 
     def _save_issues_to_storage(self):
@@ -1637,9 +1671,7 @@ class NetworkMonitorApp(rumps.App):
     def _rescan_network(self, _):
         """Force a network device scan."""
         rumps.notification(
-            title="Network Monitor",
-            subtitle="Scanning",
-            message="Scanning for network devices..."
+            title="Network Monitor", subtitle="Scanning", message="Scanning for network devices..."
         )
         threading.Thread(target=self._force_scan_devices, daemon=True).start()
 
@@ -1649,7 +1681,7 @@ class NetworkMonitorApp(rumps.App):
             rumps.alert(
                 title="Speed Test",
                 message="A speed test is already running. Please wait for it to complete.",
-                ok="OK"
+                ok="OK",
             )
             return
 
@@ -1658,7 +1690,7 @@ class NetworkMonitorApp(rumps.App):
             title="Run Speed Test",
             message="This will test your network speed by downloading test data.\n\nThis may take 10-15 seconds and will use some bandwidth.\n\nContinue?",
             ok="Run Test",
-            cancel="Cancel"
+            cancel="Cancel",
         )
         if response != 1:
             return
@@ -1670,6 +1702,7 @@ class NetworkMonitorApp(rumps.App):
         """Show detailed historical graphs in a popup window."""
         try:
             from app.views.graph_window import GraphWindow
+
             graph_window = GraphWindow(self.store)
             graph_window.show()
             logger.info("Graph window requested")
@@ -1679,13 +1712,15 @@ class NetworkMonitorApp(rumps.App):
                 title="Graph Window Error",
                 subtitle="Could not open",
                 message=str(e)[:100],
-                sound=False
+                sound=False,
             )
 
     def _show_alert_on_main_thread(self, title: str, message: str):
         """Show a rumps alert on the main thread (required by macOS)."""
+
         def show_alert():
             rumps.alert(title=title, message=message, ok="OK")
+
         NSOperationQueue.mainQueue().addOperationWithBlock_(show_alert)
 
     def _execute_speed_test(self):
@@ -1694,15 +1729,15 @@ class NetworkMonitorApp(rumps.App):
             rumps.notification(
                 title="Network Monitor",
                 subtitle="Speed Test",
-                message="Running speed test... This may take 10-15 seconds."
+                message="Running speed test... This may take 10-15 seconds.",
             )
 
             results = self._speed_test.run_test(duration_seconds=10)
 
             if results:
-                download = results.get('download_mbps', 0)
-                upload = results.get('upload_mbps', 0)
-                latency = results.get('latency_ms', 0)
+                download = results.get("download_mbps", 0)
+                upload = results.get("upload_mbps", 0)
+                latency = results.get("latency_ms", 0)
 
                 message = f"Download: {download:.1f} Mbps\n"
                 if upload > 0:
@@ -1712,15 +1747,11 @@ class NetworkMonitorApp(rumps.App):
                 self._show_alert_on_main_thread("Speed Test Results", message)
             else:
                 self._show_alert_on_main_thread(
-                    "Speed Test",
-                    "Speed test failed. Please check your internet connection."
+                    "Speed Test", "Speed test failed. Please check your internet connection."
                 )
         except Exception as e:
             logger.error(f"Speed test error: {e}", exc_info=True)
-            self._show_alert_on_main_thread(
-                "Speed Test Error",
-                f"An error occurred: {e}"
-            )
+            self._show_alert_on_main_thread("Speed Test Error", f"An error occurred: {e}")
 
     def _force_scan_devices(self):
         """Force a device scan and notify when done."""
@@ -1730,7 +1761,7 @@ class NetworkMonitorApp(rumps.App):
             rumps.notification(
                 title="Network Monitor",
                 subtitle="Scan Complete",
-                message=f"Found {online} online devices ({total} total known)"
+                message=f"Found {online} online devices ({total} total known)",
             )
             logger.info(f"Force scan completed: {online} online, {total} total")
         except Exception as e:
@@ -1740,11 +1771,7 @@ class NetworkMonitorApp(rumps.App):
         """Toggle Launch at Login setting."""
         success, message = self.launch_manager.toggle()
         sender.title = self.launch_manager.get_status()
-        rumps.notification(
-            title="Network Monitor",
-            subtitle="Startup Settings",
-            message=message
-        )
+        rumps.notification(title="Network Monitor", subtitle="Startup Settings", message=message)
 
     def _reset_session(self, _):
         """Reset session statistics."""
@@ -1763,7 +1790,7 @@ class NetworkMonitorApp(rumps.App):
         rumps.notification(
             title="Network Monitor",
             subtitle="Session Reset",
-            message="Session statistics have been reset."
+            message="Session statistics have been reset.",
         )
 
     def _reset_today(self, _):
@@ -1772,7 +1799,7 @@ class NetworkMonitorApp(rumps.App):
             title="Reset Today's Stats",
             message="Are you sure you want to reset all statistics for today?",
             ok="Reset",
-            cancel="Cancel"
+            cancel="Cancel",
         )
         if response == 1:
             self.store.reset_today()
@@ -1781,23 +1808,24 @@ class NetworkMonitorApp(rumps.App):
             rumps.notification(
                 title="Network Monitor",
                 subtitle="Stats Reset",
-                message="Today's statistics have been reset."
+                message="Today's statistics have been reset.",
             )
 
     def _open_data_folder(self, _):
         """Open the data folder in Finder."""
         import subprocess
+
         folder = str(self.store.data_dir)
-        subprocess.run(['open', folder])
+        subprocess.run(["open", folder])
 
     def _create_budget_bar_image(self, percent: float, width: int = 100, height: int = 12) -> str:
         """Create a PIL-based budget progress bar image.
-        
+
         Args:
             percent: Budget usage percentage (0-100+)
             width: Image width in pixels
             height: Image height in pixels
-            
+
         Returns:
             Path to the generated PNG file
         """
@@ -1809,27 +1837,25 @@ class NetworkMonitorApp(rumps.App):
         display_percent = min(percent, 100)
 
         # Create image with transparency
-        img = Image.new('RGBA', (width, height), (0, 0, 0, 0))
+        img = Image.new("RGBA", (width, height), (0, 0, 0, 0))
         draw = ImageDraw.Draw(img)
 
         # Colors based on status
         if exceeded:
-            fill_color = (255, 59, 48, 255)      # Red
-            bg_color = (255, 59, 48, 80)         # Light red background
+            fill_color = (255, 59, 48, 255)  # Red
+            bg_color = (255, 59, 48, 80)  # Light red background
         elif percent >= 80:
-            fill_color = (255, 204, 0, 255)      # Yellow
-            bg_color = (100, 100, 100, 60)       # Gray background
+            fill_color = (255, 204, 0, 255)  # Yellow
+            bg_color = (100, 100, 100, 60)  # Gray background
         else:
-            fill_color = (52, 199, 89, 255)      # Green
-            bg_color = (100, 100, 100, 60)       # Gray background
+            fill_color = (52, 199, 89, 255)  # Green
+            bg_color = (100, 100, 100, 60)  # Gray background
 
         # Draw background (rounded rectangle)
         padding = 1
         radius = height // 3
         draw.rounded_rectangle(
-            [padding, padding, width - padding, height - padding],
-            radius=radius,
-            fill=bg_color
+            [padding, padding, width - padding, height - padding], radius=radius, fill=bg_color
         )
 
         # Draw filled portion
@@ -1838,7 +1864,7 @@ class NetworkMonitorApp(rumps.App):
             draw.rounded_rectangle(
                 [padding, padding, padding + filled_width, height - padding],
                 radius=radius,
-                fill=fill_color
+                fill=fill_color,
             )
 
         # Save to temp file
@@ -1847,9 +1873,9 @@ class NetworkMonitorApp(rumps.App):
 
         # Use hash for caching
         cache_key = f"budget_{int(percent)}_{width}_{height}"
-        img_path = temp_dir / f'{cache_key}.png'
+        img_path = temp_dir / f"{cache_key}.png"
 
-        img.save(str(img_path), 'PNG')
+        img.save(str(img_path), "PNG")
         return str(img_path)
 
     def _update_budget(self, conn: ConnectionInfo, today_sent: int, today_recv: int):
@@ -1876,17 +1902,17 @@ class NetworkMonitorApp(rumps.App):
             period_label = "today"
         elif budget.period == "weekly":
             weekly = self.store.get_weekly_totals()
-            conn_stats = weekly.get('by_connection', {}).get(conn_key, {'sent': 0, 'recv': 0})
-            usage = conn_stats.get('sent', 0) + conn_stats.get('recv', 0)
+            conn_stats = weekly.get("by_connection", {}).get(conn_key, {"sent": 0, "recv": 0})
+            usage = conn_stats.get("sent", 0) + conn_stats.get("recv", 0)
             period_label = "this week"
         else:  # monthly
             monthly = self.store.get_monthly_totals()
-            conn_stats = monthly.get('by_connection', {}).get(conn_key, {'sent': 0, 'recv': 0})
-            usage = conn_stats.get('sent', 0) + conn_stats.get('recv', 0)
+            conn_stats = monthly.get("by_connection", {}).get(conn_key, {"sent": 0, "recv": 0})
+            usage = conn_stats.get("sent", 0) + conn_stats.get("recv", 0)
             period_label = "this month"
 
         status = self.settings.check_budget_status(conn_key, 0, usage)
-        percent = status['percent_used']
+        percent = status["percent_used"]
 
         # Create visual progress bar image
         try:
@@ -1896,23 +1922,23 @@ class NetworkMonitorApp(rumps.App):
             logger.debug(f"Could not create budget bar: {e}")
 
         # Format remaining data
-        remaining = format_bytes(status['remaining_bytes'])
+        remaining = format_bytes(status["remaining_bytes"])
 
         # Budget notifications and title
-        if status['exceeded']:
+        if status["exceeded"]:
             self.menu_budget.title = f"  OVER LIMIT ({percent:.0f}%)"
             # Send exceeded notification (once per connection)
             if conn_key not in self._budget_exceeded_notified:
                 self._budget_exceeded_notified.add(conn_key)
-                limit_str = format_bytes(status['limit_bytes'])
+                limit_str = format_bytes(status["limit_bytes"])
                 rumps.notification(
                     title="Network Monitor",
                     subtitle="⚠️ Data Budget Exceeded!",
                     message=f"You've exceeded your {budget.period} limit of {limit_str} on {conn_key}.",
-                    sound=True
+                    sound=True,
                 )
                 logger.warning(f"Budget exceeded for {conn_key}: {percent:.1f}%")
-        elif status['warning']:
+        elif status["warning"]:
             self.menu_budget.title = f"  {percent:.0f}% used ({remaining} left)"
             # Send warning notification (once per connection)
             if conn_key not in self._budget_warning_notified:
@@ -1921,7 +1947,7 @@ class NetworkMonitorApp(rumps.App):
                     title="Network Monitor",
                     subtitle=f"Data Budget Warning ({percent:.0f}%)",
                     message=f"You've used {percent:.0f}% of your {budget.period} limit. {remaining} remaining.",
-                    sound=False
+                    sound=False,
                 )
                 logger.info(f"Budget warning for {conn_key}: {percent:.1f}%")
         else:
@@ -1935,7 +1961,11 @@ class NetworkMonitorApp(rumps.App):
         """Build the budget submenu with presets and options."""
         self._safe_menu_clear(self.menu_budgets)
 
-        conn_key = self.connection_detector.get_connection_key() if hasattr(self, 'connection_detector') else None
+        conn_key = (
+            self.connection_detector.get_connection_key()
+            if hasattr(self, "connection_detector")
+            else None
+        )
         budget = self.settings.get_budget(conn_key) if conn_key else None
 
         # Current connection budget section
@@ -1949,8 +1979,11 @@ class NetworkMonitorApp(rumps.App):
                 self.menu_budgets.add(rumps.MenuItem(f"   Limit: {limit_display}/{budget.period}"))
 
                 # Toggle off option
-                self.menu_budgets.add(rumps.MenuItem("   ✓ Budget Enabled",
-                                                     callback=lambda _: self._toggle_budget(conn_key)))
+                self.menu_budgets.add(
+                    rumps.MenuItem(
+                        "   ✓ Budget Enabled", callback=lambda _: self._toggle_budget(conn_key)
+                    )
+                )
             else:
                 self.menu_budgets.add(rumps.MenuItem("   No budget set"))
 
@@ -1971,10 +2004,12 @@ class NetworkMonitorApp(rumps.App):
                 # Check if this is the current setting
                 is_current = budget and budget.enabled and budget.limit_bytes == mb * 1024 * 1024
                 prefix = "   ✓ " if is_current else "      "
-                self.menu_budgets.add(rumps.MenuItem(
-                    f"{prefix}{label}",
-                    callback=lambda _, m=mb: self._set_quick_budget(conn_key, m)
-                ))
+                self.menu_budgets.add(
+                    rumps.MenuItem(
+                        f"{prefix}{label}",
+                        callback=lambda _, m=mb: self._set_quick_budget(conn_key, m),
+                    )
+                )
 
             self.menu_budgets.add(rumps.separator)
 
@@ -1986,23 +2021,27 @@ class NetworkMonitorApp(rumps.App):
             for label, period in periods:
                 is_current = current_period == period
                 prefix = "   ✓ " if is_current else "      "
-                self.menu_budgets.add(rumps.MenuItem(
-                    f"{prefix}{label}",
-                    callback=lambda _, p=period: self._set_budget_period(conn_key, p)
-                ))
+                self.menu_budgets.add(
+                    rumps.MenuItem(
+                        f"{prefix}{label}",
+                        callback=lambda _, p=period: self._set_budget_period(conn_key, p),
+                    )
+                )
 
             self.menu_budgets.add(rumps.separator)
 
             # Custom amount
-            self.menu_budgets.add(rumps.MenuItem("Custom Amount...",
-                                                 callback=self._set_custom_budget))
+            self.menu_budgets.add(
+                rumps.MenuItem("Custom Amount...", callback=self._set_custom_budget)
+            )
         else:
             self.menu_budgets.add(rumps.MenuItem("Connect to a network first"))
 
         # View all budgets
         self.menu_budgets.add(rumps.separator)
-        self.menu_budgets.add(rumps.MenuItem("View All Budgets...",
-                                             callback=self._show_all_budgets))
+        self.menu_budgets.add(
+            rumps.MenuItem("View All Budgets...", callback=self._show_all_budgets)
+        )
 
     def _format_budget_limit(self, bytes_val: int) -> str:
         """Format budget limit nicely."""
@@ -2019,22 +2058,23 @@ class NetworkMonitorApp(rumps.App):
         if limit_mb == 0:
             # Disable budget
             self.settings.remove_budget(conn_key)
-            rumps.notification("Network Monitor", "Budget Removed",
-                             f"Unlimited data for {conn_key}")
+            rumps.notification(
+                "Network Monitor", "Budget Removed", f"Unlimited data for {conn_key}"
+            )
         else:
             budget = self.settings.get_budget(conn_key)
             period = budget.period if budget else "monthly"
 
             new_budget = ConnectionBudget(
-                enabled=True,
-                limit_bytes=limit_mb * 1024 * 1024,
-                period=period,
-                warn_at_percent=80
+                enabled=True, limit_bytes=limit_mb * 1024 * 1024, period=period, warn_at_percent=80
             )
             self.settings.set_budget(conn_key, new_budget)
 
-            rumps.notification("Network Monitor", "Budget Set",
-                             f"{self._format_budget_limit(limit_mb * 1024 * 1024)}/{period}")
+            rumps.notification(
+                "Network Monitor",
+                "Budget Set",
+                f"{self._format_budget_limit(limit_mb * 1024 * 1024)}/{period}",
+            )
 
         self._build_budget_menu()
 
@@ -2044,8 +2084,7 @@ class NetworkMonitorApp(rumps.App):
         if budget:
             budget.period = period
             self.settings.set_budget(conn_key, budget)
-            rumps.notification("Network Monitor", "Period Changed",
-                             f"Budget now resets {period}")
+            rumps.notification("Network Monitor", "Period Changed", f"Budget now resets {period}")
         self._build_budget_menu()
 
     def _toggle_budget(self, conn_key: str):
@@ -2067,7 +2106,7 @@ class NetworkMonitorApp(rumps.App):
             message="Enter limit in MB:",
             default_text="1024",
             ok="Set",
-            cancel="Cancel"
+            cancel="Cancel",
         ).run()
 
         if response.clicked:
@@ -2082,7 +2121,10 @@ class NetworkMonitorApp(rumps.App):
         budgets = self.settings.get_all_budgets()
 
         if not budgets:
-            rumps.alert("Data Budgets", "No budgets configured.\n\nConnect to a network and use Quick Set to add one.")
+            rumps.alert(
+                "Data Budgets",
+                "No budgets configured.\n\nConnect to a network and use Quick Set to add one.",
+            )
             return
 
         lines = ["Configured Budgets:\n"]
@@ -2108,10 +2150,16 @@ class NetworkMonitorApp(rumps.App):
         # Use file dialog to get save location
         try:
             import subprocess
+
             result = subprocess.run(
-                ['osascript', '-e',
-                 f'tell application "System Events" to return POSIX path of (choose file name default name "{default_filename}" default location (path to desktop folder))'],
-                capture_output=True, text=True, timeout=60
+                [
+                    "osascript",
+                    "-e",
+                    f'tell application "System Events" to return POSIX path of (choose file name default name "{default_filename}" default location (path to desktop folder))',
+                ],
+                capture_output=True,
+                text=True,
+                timeout=60,
             )
 
             if result.returncode != 0 or not result.stdout.strip():
@@ -2119,7 +2167,7 @@ class NetworkMonitorApp(rumps.App):
 
             filepath = Path(result.stdout.strip())
             if not filepath.suffix:
-                filepath = filepath.with_suffix('.csv')
+                filepath = filepath.with_suffix(".csv")
         except Exception as e:
             logger.error(f"File dialog error: {e}")
             # Fallback to desktop
@@ -2129,41 +2177,47 @@ class NetworkMonitorApp(rumps.App):
             # Collect data
             daily = self.store.get_daily_totals(days=30)
 
-            with open(filepath, 'w', newline='') as f:
+            with open(filepath, "w", newline="") as f:
                 writer = csv.writer(f)
 
                 # Header
-                writer.writerow(['Date', 'Uploaded (bytes)', 'Downloaded (bytes)', 'Total (bytes)'])
+                writer.writerow(["Date", "Uploaded (bytes)", "Downloaded (bytes)", "Total (bytes)"])
 
                 # Daily data
                 for day in daily:
-                    writer.writerow([
-                        day['date'],
-                        day['sent'],
-                        day['recv'],
-                        day['sent'] + day['recv']
-                    ])
+                    writer.writerow(
+                        [day["date"], day["sent"], day["recv"], day["sent"] + day["recv"]]
+                    )
 
                 # Add summary section
                 writer.writerow([])
-                writer.writerow(['Summary'])
+                writer.writerow(["Summary"])
 
                 weekly = self.store.get_weekly_totals()
                 monthly = self.store.get_monthly_totals()
 
-                writer.writerow(['Period', 'Uploaded', 'Downloaded', 'Total'])
-                writer.writerow(['This Week', weekly['sent'], weekly['recv'], weekly['sent'] + weekly['recv']])
-                writer.writerow(['This Month', monthly['sent'], monthly['recv'], monthly['sent'] + monthly['recv']])
+                writer.writerow(["Period", "Uploaded", "Downloaded", "Total"])
+                writer.writerow(
+                    ["This Week", weekly["sent"], weekly["recv"], weekly["sent"] + weekly["recv"]]
+                )
+                writer.writerow(
+                    [
+                        "This Month",
+                        monthly["sent"],
+                        monthly["recv"],
+                        monthly["sent"] + monthly["recv"],
+                    ]
+                )
 
             rumps.notification(
                 title="Network Monitor",
                 subtitle="Export Complete",
-                message=f"Data exported to {filepath.name}"
+                message=f"Data exported to {filepath.name}",
             )
             logger.info(f"Data exported to CSV: {filepath}")
 
             # Open in Finder
-            subprocess.run(['open', '-R', str(filepath)])
+            subprocess.run(["open", "-R", str(filepath)])
 
         except Exception as e:
             logger.error(f"CSV export error: {e}", exc_info=True)
@@ -2180,10 +2234,16 @@ class NetworkMonitorApp(rumps.App):
         # Use file dialog to get save location
         try:
             import subprocess
+
             result = subprocess.run(
-                ['osascript', '-e',
-                 f'tell application "System Events" to return POSIX path of (choose file name default name "{default_filename}" default location (path to desktop folder))'],
-                capture_output=True, text=True, timeout=60
+                [
+                    "osascript",
+                    "-e",
+                    f'tell application "System Events" to return POSIX path of (choose file name default name "{default_filename}" default location (path to desktop folder))',
+                ],
+                capture_output=True,
+                text=True,
+                timeout=60,
             )
 
             if result.returncode != 0 or not result.stdout.strip():
@@ -2191,7 +2251,7 @@ class NetworkMonitorApp(rumps.App):
 
             filepath = Path(result.stdout.strip())
             if not filepath.suffix:
-                filepath = filepath.with_suffix('.json')
+                filepath = filepath.with_suffix(".json")
         except Exception as e:
             logger.error(f"File dialog error: {e}")
             # Fallback to desktop
@@ -2211,7 +2271,11 @@ class NetworkMonitorApp(rumps.App):
                 },
                 "network_quality": {
                     "score": self._quality_score,
-                    "avg_latency_ms": sum(self._latency_samples) / len(self._latency_samples) if self._latency_samples else None,
+                    "avg_latency_ms": (
+                        sum(self._latency_samples) / len(self._latency_samples)
+                        if self._latency_samples
+                        else None
+                    ),
                     "sample_count": len(self._latency_samples),
                 },
                 "devices": [
@@ -2225,24 +2289,23 @@ class NetworkMonitorApp(rumps.App):
                     }
                     for d in self.network_scanner.get_all_devices()
                 ],
-                "budgets": {
-                    k: v.to_dict() for k, v in self.settings.get_all_budgets().items()
-                },
+                "budgets": {k: v.to_dict() for k, v in self.settings.get_all_budgets().items()},
             }
 
-            with open(filepath, 'w') as f:
+            with open(filepath, "w") as f:
                 json.dump(export_data, f, indent=2, default=str)
 
             rumps.notification(
                 title="Network Monitor",
                 subtitle="Export Complete",
-                message=f"Data exported to {filepath.name}"
+                message=f"Data exported to {filepath.name}",
             )
             logger.info(f"Data exported to JSON: {filepath}")
 
             # Open in Finder
             import subprocess
-            subprocess.run(['open', '-R', str(filepath)])
+
+            subprocess.run(["open", "-R", str(filepath)])
 
         except Exception as e:
             logger.error(f"JSON export error: {e}", exc_info=True)
@@ -2251,54 +2314,56 @@ class NetworkMonitorApp(rumps.App):
     def _export_to_influxdb(self, _):
         """Export metrics to InfluxDB."""
         from monitor.metrics_exporter import MetricsExporter
-        
+
         exporter = MetricsExporter()
-        
+
         # Get configuration from user
         response = rumps.Window(
             title="Export to InfluxDB",
             message="Enter InfluxDB configuration:\n\nEndpoint URL:\nToken:\nOrganization:\nBucket:",
             default_text="http://localhost:8086\n\nyour-token\n\nyour-org\n\nnetwork-monitor",
             ok="Export",
-            cancel="Cancel"
+            cancel="Cancel",
         ).run()
-        
+
         if not response.clicked:
             return
-        
+
         try:
-            lines = response.text.strip().split('\n')
+            lines = response.text.strip().split("\n")
             if len(lines) < 4:
                 rumps.alert("Invalid", "Please provide all 4 values: endpoint, token, org, bucket")
                 return
-            
+
             endpoint = lines[0].strip()
             token = lines[1].strip()
             org = lines[2].strip()
             bucket = lines[3].strip()
-            
+
             # Collect current metrics
             stats = self.network_stats.get_current_stats()
             online, total = self.network_scanner.get_device_count()
-            
+
             export_data = {
-                'upload_speed': stats.upload_speed if stats else 0,
-                'download_speed': stats.download_speed if stats else 0,
-                'latency_ms': self._current_latency or 0,
-                'quality_score': self._quality_score or 0,
-                'device_count': online,
+                "upload_speed": stats.upload_speed if stats else 0,
+                "download_speed": stats.download_speed if stats else 0,
+                "latency_ms": self._current_latency or 0,
+                "quality_score": self._quality_score or 0,
+                "device_count": online,
             }
-            
+
             success = exporter.export_to_influxdb(export_data, endpoint, token, org, bucket)
-            
+
             if success:
                 rumps.notification(
                     title="Network Monitor",
                     subtitle="InfluxDB Export",
-                    message="Metrics exported successfully"
+                    message="Metrics exported successfully",
                 )
             else:
-                rumps.alert("Export Failed", "Could not export to InfluxDB. Check logs for details.")
+                rumps.alert(
+                    "Export Failed", "Could not export to InfluxDB. Check logs for details."
+                )
         except Exception as e:
             logger.error(f"InfluxDB export error: {e}", exc_info=True)
             rumps.alert("Export Error", f"Could not export to InfluxDB: {e}")
@@ -2306,49 +2371,51 @@ class NetworkMonitorApp(rumps.App):
     def _export_to_prometheus(self, _):
         """Export metrics to Prometheus Pushgateway."""
         from monitor.metrics_exporter import MetricsExporter
-        
+
         exporter = MetricsExporter()
-        
+
         # Get configuration from user
         response = rumps.Window(
             title="Export to Prometheus",
             message="Enter Prometheus Pushgateway URL:",
             default_text="http://localhost:9091",
             ok="Export",
-            cancel="Cancel"
+            cancel="Cancel",
         ).run()
-        
+
         if not response.clicked:
             return
-        
+
         try:
             gateway_url = response.text.strip()
             if not gateway_url:
                 rumps.alert("Invalid", "Please provide a Pushgateway URL")
                 return
-            
+
             # Collect current metrics
             stats = self.network_stats.get_current_stats()
             online, total = self.network_scanner.get_device_count()
-            
+
             export_data = {
-                'upload_speed': stats.upload_speed if stats else 0,
-                'download_speed': stats.download_speed if stats else 0,
-                'latency_ms': self._current_latency or 0,
-                'quality_score': self._quality_score or 0,
-                'device_count': online,
+                "upload_speed": stats.upload_speed if stats else 0,
+                "download_speed": stats.download_speed if stats else 0,
+                "latency_ms": self._current_latency or 0,
+                "quality_score": self._quality_score or 0,
+                "device_count": online,
             }
-            
+
             success = exporter.export_to_prometheus(export_data, gateway_url)
-            
+
             if success:
                 rumps.notification(
                     title="Network Monitor",
                     subtitle="Prometheus Export",
-                    message="Metrics exported successfully"
+                    message="Metrics exported successfully",
                 )
             else:
-                rumps.alert("Export Failed", "Could not export to Prometheus. Check logs for details.")
+                rumps.alert(
+                    "Export Failed", "Could not export to Prometheus. Check logs for details."
+                )
         except Exception as e:
             logger.error(f"Prometheus export error: {e}", exc_info=True)
             rumps.alert("Export Error", f"Could not export to Prometheus: {e}")
@@ -2364,10 +2431,16 @@ class NetworkMonitorApp(rumps.App):
 
         try:
             import subprocess
+
             result = subprocess.run(
-                ['osascript', '-e',
-                 f'tell application "System Events" to return POSIX path of (choose file name default name "{default_filename}" default location (path to desktop folder))'],
-                capture_output=True, text=True, timeout=60
+                [
+                    "osascript",
+                    "-e",
+                    f'tell application "System Events" to return POSIX path of (choose file name default name "{default_filename}" default location (path to desktop folder))',
+                ],
+                capture_output=True,
+                text=True,
+                timeout=60,
             )
 
             if result.returncode != 0 or not result.stdout.strip():
@@ -2375,7 +2448,7 @@ class NetworkMonitorApp(rumps.App):
 
             filepath = Path(result.stdout.strip())
             if not filepath.suffix:
-                filepath = filepath.with_suffix('.db')
+                filepath = filepath.with_suffix(".db")
         except Exception as e:
             logger.error(f"File dialog error: {e}")
             # Fallback to default location
@@ -2387,13 +2460,14 @@ class NetworkMonitorApp(rumps.App):
             rumps.notification(
                 title="Network Monitor",
                 subtitle="Backup Complete",
-                message=f"Database backed up to {backup_path.name}"
+                message=f"Database backed up to {backup_path.name}",
             )
             logger.info(f"Backup created: {backup_path}")
 
             # Open in Finder
             import subprocess
-            subprocess.run(['open', '-R', str(backup_path)])
+
+            subprocess.run(["open", "-R", str(backup_path)])
 
         except Exception as e:
             logger.error(f"Backup error: {e}", exc_info=True)
@@ -2406,7 +2480,7 @@ class NetworkMonitorApp(rumps.App):
             title="Restore from Backup",
             message="This will replace ALL current data with the backup.\n\nAre you sure you want to continue?",
             ok="Choose Backup...",
-            cancel="Cancel"
+            cancel="Cancel",
         )
 
         if response != 1:
@@ -2414,10 +2488,16 @@ class NetworkMonitorApp(rumps.App):
 
         try:
             import subprocess
+
             result = subprocess.run(
-                ['osascript', '-e',
-                 'tell application "System Events" to return POSIX path of (choose file of type {"db", "sqlite", "sqlite3"} with prompt "Select backup file to restore")'],
-                capture_output=True, text=True, timeout=60
+                [
+                    "osascript",
+                    "-e",
+                    'tell application "System Events" to return POSIX path of (choose file of type {"db", "sqlite", "sqlite3"} with prompt "Select backup file to restore")',
+                ],
+                capture_output=True,
+                text=True,
+                timeout=60,
             )
 
             if result.returncode != 0 or not result.stdout.strip():
@@ -2430,7 +2510,7 @@ class NetworkMonitorApp(rumps.App):
                 title="Confirm Restore",
                 message=f"Restore from:\n{backup_path.name}\n\nAll current data will be replaced. This cannot be undone.",
                 ok="Restore",
-                cancel="Cancel"
+                cancel="Cancel",
             )
 
             if confirm != 1:
@@ -2441,7 +2521,7 @@ class NetworkMonitorApp(rumps.App):
             rumps.notification(
                 title="Network Monitor",
                 subtitle="Restore Complete",
-                message=f"Data restored from {backup_path.name}"
+                message=f"Data restored from {backup_path.name}",
             )
             logger.info(f"Database restored from: {backup_path}")
 
@@ -2466,14 +2546,10 @@ class NetworkMonitorApp(rumps.App):
                 f"Database Size: {stats.get('file_size_mb', 0):.2f} MB",
                 "",
                 f"Retention Policy: {STORAGE.RETENTION_DAYS} days",
-                f"Location: {self.store.get_data_file_path()}"
+                f"Location: {self.store.get_data_file_path()}",
             ]
 
-            rumps.alert(
-                title="Database Info",
-                message="\n".join(info_lines),
-                ok="OK"
-            )
+            rumps.alert(title="Database Info", message="\n".join(info_lines), ok="OK")
         except Exception as e:
             logger.error(f"Database info error: {e}", exc_info=True)
             rumps.alert("Error", f"Could not get database info: {e}")
@@ -2484,7 +2560,7 @@ class NetworkMonitorApp(rumps.App):
             title="Run Cleanup",
             message=f"This will delete data older than {STORAGE.RETENTION_DAYS} days.\n\nContinue?",
             ok="Run Cleanup",
-            cancel="Cancel"
+            cancel="Cancel",
         )
 
         if response != 1:
@@ -2497,13 +2573,13 @@ class NetworkMonitorApp(rumps.App):
                 rumps.notification(
                     title="Network Monitor",
                     subtitle="Cleanup Complete",
-                    message=f"Removed {deleted} old records"
+                    message=f"Removed {deleted} old records",
                 )
             else:
                 rumps.notification(
                     title="Network Monitor",
                     subtitle="Cleanup Complete",
-                    message="No old data to remove"
+                    message="No old data to remove",
                 )
             logger.info(f"Manual cleanup completed: {deleted} records removed")
         except Exception as e:
@@ -2518,13 +2594,15 @@ class NetworkMonitorApp(rumps.App):
         self._safe_menu_clear(self.menu_title_display)
         for m, label in self.settings.get_title_display_options():
             check = "✓ " if m == mode else "   "
-            item = rumps.MenuItem(f"{check}{label}", callback=lambda s, m=m: self._set_title_display(m))
+            item = rumps.MenuItem(
+                f"{check}{label}", callback=lambda s, m=m: self._set_title_display(m)
+            )
             self.menu_title_display.add(item)
 
         rumps.notification(
             title="Network Monitor",
             subtitle="Display Changed",
-            message=f"Menu bar will now show: {mode}"
+            message=f"Menu bar will now show: {mode}",
         )
 
     def _show_about(self, _):
@@ -2580,15 +2658,12 @@ Built with Python, rumps, PIL, and matplotlib.
 
 © 2026"""
 
-        rumps.alert(
-            title="About Network Monitor",
-            message=about_text,
-            ok="OK"
-        )
+        rumps.alert(title="About Network Monitor", message=about_text, ok="OK")
 
     def _cleanup_temp_files(self) -> None:
         """Clean up temporary files created by the app."""
         import shutil
+
         for temp_dir in self._temp_dirs:
             try:
                 if temp_dir.exists():
@@ -2599,13 +2674,14 @@ Built with Python, rumps, PIL, and matplotlib.
     def _cleanup_old_sparklines(self) -> None:
         """Remove sparkline images older than configured max age."""
         import time as time_module
+
         sparkline_dir = Path(tempfile.gettempdir()) / STORAGE.SPARKLINE_TEMP_DIR
         if not sparkline_dir.exists():
             return
 
         cutoff = time_module.time() - STORAGE.SPARKLINE_MAX_AGE_SECONDS
         try:
-            for file in sparkline_dir.glob('*.png'):
+            for file in sparkline_dir.glob("*.png"):
                 if file.stat().st_mtime < cutoff:
                     file.unlink()
         except Exception as e:
@@ -2622,20 +2698,22 @@ Built with Python, rumps, PIL, and matplotlib.
 
                 # Load each history, respecting maxlen (thread-safe)
                 with self._sparkline_lock:
-                    for val in data.get('upload', []):
+                    for val in data.get("upload", []):
                         self._upload_history.append(val)
-                    for val in data.get('download', []):
+                    for val in data.get("download", []):
                         self._download_history.append(val)
-                    for val in data.get('total', []):
+                    for val in data.get("total", []):
                         self._total_history.append(val)
-                    for val in data.get('quality', []):
+                    for val in data.get("quality", []):
                         self._quality_history.append(val)
-                    for val in data.get('latency', []):
+                    for val in data.get("latency", []):
                         self._latency_history.append(val)
-                    for val in data.get('dns', []):
+                    for val in data.get("dns", []):
                         self._dns_history.append(val)
 
-                logger.info(f"Loaded sparkline history: {len(self._quality_history)} quality, {len(self._upload_history)} upload, {len(self._total_history)} total samples")
+                logger.info(
+                    f"Loaded sparkline history: {len(self._quality_history)} quality, {len(self._upload_history)} upload, {len(self._total_history)} total samples"
+                )
             else:
                 logger.info(f"No sparkline history file at {history_file}, starting fresh")
         except Exception as e:
@@ -2648,16 +2726,18 @@ Built with Python, rumps, PIL, and matplotlib.
             # Get copies of history data (thread-safe)
             with self._sparkline_lock:
                 data = {
-                    'upload': list(self._upload_history),
-                    'download': list(self._download_history),
-                    'total': list(self._total_history),
-                    'quality': list(self._quality_history),
-                    'latency': list(self._latency_history),
-                    'dns': list(self._dns_history),
+                    "upload": list(self._upload_history),
+                    "download": list(self._download_history),
+                    "total": list(self._total_history),
+                    "quality": list(self._quality_history),
+                    "latency": list(self._latency_history),
+                    "dns": list(self._dns_history),
                 }
-            with open(history_file, 'w') as f:
+            with open(history_file, "w") as f:
                 json.dump(data, f)
-            logger.info(f"Saved sparkline history: {len(data['quality'])} quality, {len(data['upload'])} upload samples to {history_file}")
+            logger.info(
+                f"Saved sparkline history: {len(data['quality'])} quality, {len(data['upload'])} upload samples to {history_file}"
+            )
         except Exception as e:
             logger.error(f"Could not save sparkline history to {history_file}: {e}")
 
@@ -2666,12 +2746,12 @@ Built with Python, rumps, PIL, and matplotlib.
         logger.info("Application shutting down...")
         self._running = False
         # Stop controller
-        if hasattr(self, '_controller'):
+        if hasattr(self, "_controller"):
             self._controller.stop()
         # Stop timers
-        if hasattr(self, '_sparkline_timer'):
+        if hasattr(self, "_sparkline_timer"):
             self._sparkline_timer.stop()
-        if hasattr(self, '_update_timer'):
+        if hasattr(self, "_update_timer"):
             self._update_timer.stop()
         self._save_sparkline_history()  # Persist graph history
         self.store.flush()  # Save any pending data
@@ -2691,6 +2771,7 @@ def main():
 
         # Try to acquire the lock again after killing
         import time as time_module
+
         time_module.sleep(0.5)  # Give the lock file time to be released
 
         if not _singleton_lock.acquire():

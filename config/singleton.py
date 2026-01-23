@@ -5,12 +5,13 @@ process exits, even on crash.
 
 Usage:
     from config.singleton import SingletonLock
-    
+
     lock = SingletonLock()
     if not lock.acquire():
         lock.kill_existing()
         lock.acquire()
 """
+
 import fcntl
 import os
 import signal
@@ -26,13 +27,13 @@ logger = get_logger(__name__)
 
 class SingletonLock:
     """Ensures only one instance of the application can run at a time.
-    
+
     Uses file locking (fcntl) which is automatically released when the
     process exits, even on crash.
-    
+
     Attributes:
         lock_name: Name used for the lock file.
-    
+
     Example:
         >>> lock = SingletonLock("my-app")
         >>> if lock.acquire():
@@ -43,7 +44,7 @@ class SingletonLock:
 
     def __init__(self, lock_name: str = "network-monitor"):
         """Initialize the singleton lock.
-        
+
         Args:
             lock_name: Base name for the lock file.
         """
@@ -53,11 +54,11 @@ class SingletonLock:
 
     def get_running_pid(self) -> Optional[int]:
         """Get the PID of the currently running instance, if any.
-        
+
         Returns:
             PID of running instance, or None if no instance is running.
         """
-        pid_file = self._lock_file.with_suffix('.pid')
+        pid_file = self._lock_file.with_suffix(".pid")
         if not pid_file.exists():
             return None
         try:
@@ -74,16 +75,16 @@ class SingletonLock:
 
     def _write_pid(self) -> None:
         """Write our PID to the pid file."""
-        pid_file = self._lock_file.with_suffix('.pid')
+        pid_file = self._lock_file.with_suffix(".pid")
         try:
-            with open(pid_file, 'w') as f:
+            with open(pid_file, "w") as f:
                 f.write(str(os.getpid()))
         except Exception:
             pass  # Non-critical
 
     def _remove_pid(self) -> None:
         """Remove the pid file."""
-        pid_file = self._lock_file.with_suffix('.pid')
+        pid_file = self._lock_file.with_suffix(".pid")
         try:
             pid_file.unlink(missing_ok=True)
         except Exception:
@@ -91,10 +92,10 @@ class SingletonLock:
 
     def kill_existing(self, timeout: float = 3.0) -> bool:
         """Kill any existing instance and wait for it to exit.
-        
+
         Args:
             timeout: Maximum seconds to wait for graceful shutdown before force kill.
-            
+
         Returns:
             True if no instance was running or it was successfully killed.
         """
@@ -141,13 +142,13 @@ class SingletonLock:
 
     def acquire(self) -> bool:
         """Try to acquire the singleton lock.
-        
+
         Returns:
             True if lock acquired (we're the only instance),
             False if another instance is already running.
         """
         try:
-            self._lock_fd = open(self._lock_file, 'w')
+            self._lock_fd = open(self._lock_file, "w")
             fcntl.flock(self._lock_fd.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
             # Write our PID to separate file (lock file gets truncated on open)
             self._write_pid()
@@ -179,10 +180,10 @@ _default_lock: Optional[SingletonLock] = None
 
 def get_singleton_lock(lock_name: str = "network-monitor") -> SingletonLock:
     """Get or create the default singleton lock.
-    
+
     Args:
         lock_name: Name for the lock file.
-        
+
     Returns:
         The singleton lock instance.
     """

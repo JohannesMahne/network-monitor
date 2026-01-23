@@ -1,4 +1,5 @@
 """Tests for Launch Agent management."""
+
 import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -20,11 +21,7 @@ class TestLaunchAgentManager:
     @pytest.fixture
     def manager(self, temp_launch_agents_dir):
         """Create a LaunchAgentManager with mocked paths."""
-        with patch.object(
-            LaunchAgentManager,
-            '__init__',
-            lambda self: None
-        ):
+        with patch.object(LaunchAgentManager, "__init__", lambda self: None):
             mgr = LaunchAgentManager()
             mgr.launch_agents_dir = temp_launch_agents_dir
             mgr.agent_path = temp_launch_agents_dir / "com.networkmonitor.app.plist"
@@ -42,7 +39,7 @@ class TestLaunchAgentManager:
         manager.agent_path.touch()
         assert manager.is_enabled() is True
 
-    @patch('subprocess.run')
+    @patch("subprocess.run")
     def test_is_loaded(self, mock_run, manager):
         """Test is_loaded checks launchctl."""
         mock_run.return_value = MagicMock(returncode=0)
@@ -52,7 +49,7 @@ class TestLaunchAgentManager:
         assert result is True
         mock_run.assert_called_once()
 
-    @patch('subprocess.run')
+    @patch("subprocess.run")
     def test_is_loaded_not_loaded(self, mock_run, manager):
         """Test is_loaded returns False when not loaded."""
         mock_run.return_value = MagicMock(returncode=1)
@@ -79,14 +76,15 @@ class TestLaunchAgentManager:
         manager.enable()
 
         import plistlib
-        with open(manager.agent_path, 'rb') as f:
+
+        with open(manager.agent_path, "rb") as f:
             plist = plistlib.load(f)
 
         assert "Label" in plist
         assert "ProgramArguments" in plist
         assert "RunAtLoad" in plist
 
-    @patch('subprocess.run')
+    @patch("subprocess.run")
     def test_disable(self, mock_run, manager):
         """Test disabling launch at login."""
         mock_run.return_value = MagicMock(returncode=0)
@@ -102,7 +100,7 @@ class TestLaunchAgentManager:
         assert not manager.agent_path.exists()
         assert "disabled" in message.lower()
 
-    @patch('subprocess.run')
+    @patch("subprocess.run")
     def test_toggle_enable(self, mock_run, manager):
         """Test toggle enables when disabled."""
         mock_run.return_value = MagicMock(returncode=0)
@@ -113,7 +111,7 @@ class TestLaunchAgentManager:
         assert success is True
         assert manager.agent_path.exists()
 
-    @patch('subprocess.run')
+    @patch("subprocess.run")
     def test_toggle_disable(self, mock_run, manager):
         """Test toggle disables when enabled."""
         mock_run.return_value = MagicMock(returncode=0)
@@ -175,11 +173,7 @@ class TestPlistContent:
     @pytest.fixture
     def manager(self, tmp_path):
         """Create a LaunchAgentManager with temp paths."""
-        with patch.object(
-            LaunchAgentManager,
-            '__init__',
-            lambda self: None
-        ):
+        with patch.object(LaunchAgentManager, "__init__", lambda self: None):
             mgr = LaunchAgentManager()
             mgr.launch_agents_dir = tmp_path / "LaunchAgents"
             mgr.agent_path = mgr.launch_agents_dir / "com.networkmonitor.app.plist"
@@ -218,7 +212,7 @@ class TestModuleFunctions:
 
     def test_get_launch_agent_manager(self):
         """Test get_launch_agent_manager returns a manager."""
-        with patch.object(LaunchAgentManager, '__init__', return_value=None):
+        with patch.object(LaunchAgentManager, "__init__", return_value=None):
             manager = get_launch_agent_manager()
             assert isinstance(manager, LaunchAgentManager)
 
@@ -229,11 +223,7 @@ class TestErrorHandling:
     @pytest.fixture
     def manager(self, tmp_path):
         """Create a LaunchAgentManager with temp paths."""
-        with patch.object(
-            LaunchAgentManager,
-            '__init__',
-            lambda self: None
-        ):
+        with patch.object(LaunchAgentManager, "__init__", lambda self: None):
             mgr = LaunchAgentManager()
             mgr.launch_agents_dir = tmp_path / "LaunchAgents"
             mgr.agent_path = mgr.launch_agents_dir / "com.networkmonitor.app.plist"
@@ -256,7 +246,7 @@ class TestErrorHandling:
         finally:
             manager.launch_agents_dir.chmod(0o755)
 
-    @patch('subprocess.run')
+    @patch("subprocess.run")
     def test_is_loaded_exception(self, mock_run, manager):
         """Test is_loaded handles exceptions."""
         mock_run.side_effect = Exception("Test error")

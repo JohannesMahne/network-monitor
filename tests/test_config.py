@@ -1,4 +1,5 @@
 """Tests for the config module."""
+
 import tempfile
 from pathlib import Path
 
@@ -48,7 +49,7 @@ class TestConstants:
     def test_colors_hex_format(self):
         """Hex colors should start with # and be 7 chars."""
         for color in [COLORS.GREEN_HEX, COLORS.YELLOW_HEX, COLORS.RED_HEX]:
-            assert color.startswith('#')
+            assert color.startswith("#")
             assert len(color) == 7
 
 
@@ -77,7 +78,7 @@ class TestExceptions:
             command=["ping", "-c", "1", "8.8.8.8"],
             returncode=1,
             stdout="output",
-            stderr="error"
+            stderr="error",
         )
         assert exc.command == ["ping", "-c", "1", "8.8.8.8"]
         assert exc.returncode == 1
@@ -98,17 +99,18 @@ class TestLogging:
         """setup_logging should return a configured logger."""
         logger = setup_logging(data_dir=temp_data_dir, console_output=False)
         assert logger is not None
-        assert logger.name == 'netmon'
+        assert logger.name == "netmon"
 
     def test_get_logger_returns_child(self, temp_data_dir):
         """get_logger should return child of root logger."""
         setup_logging(data_dir=temp_data_dir, console_output=False)
         logger = get_logger("test.module")
-        assert 'netmon' in logger.name
+        assert "netmon" in logger.name
 
     def test_log_context_measures_duration(self, temp_data_dir):
         """LogContext should measure operation duration."""
         import time
+
         setup_logging(data_dir=temp_data_dir, console_output=False)
         logger = get_logger(__name__)
 
@@ -127,70 +129,71 @@ class TestSubprocessCache:
         cache = SubprocessCache(default_ttl=60.0)
 
         # Run a simple command
-        result1 = cache.run(['echo', 'hello'], check_allowed=False)
+        result1 = cache.run(["echo", "hello"], check_allowed=False)
         assert result1.returncode == 0
 
         # Second call should be cached
         stats_before = cache.get_stats()
-        result2 = cache.run(['echo', 'hello'], check_allowed=False)
+        result2 = cache.run(["echo", "hello"], check_allowed=False)
         stats_after = cache.get_stats()
 
-        assert stats_after['hits'] > stats_before['hits']
+        assert stats_after["hits"] > stats_before["hits"]
 
     def test_cache_expires(self):
         """Cache entries should expire after TTL."""
         cache = SubprocessCache(default_ttl=0.01)  # 10ms TTL
 
-        result1 = cache.run(['echo', 'test'], check_allowed=False)
+        result1 = cache.run(["echo", "test"], check_allowed=False)
 
         import time
+
         time.sleep(0.02)  # Wait for expiry
 
         # Should be a cache miss
         stats_before = cache.get_stats()
-        result2 = cache.run(['echo', 'test'], check_allowed=False)
+        result2 = cache.run(["echo", "test"], check_allowed=False)
         stats_after = cache.get_stats()
 
-        assert stats_after['misses'] > stats_before['misses']
+        assert stats_after["misses"] > stats_before["misses"]
 
     def test_cache_bypass(self):
         """bypass_cache should skip caching."""
         cache = SubprocessCache(default_ttl=60.0)
 
-        result1 = cache.run(['echo', 'bypass'], bypass_cache=True, check_allowed=False)
-        result2 = cache.run(['echo', 'bypass'], bypass_cache=True, check_allowed=False)
+        result1 = cache.run(["echo", "bypass"], bypass_cache=True, check_allowed=False)
+        result2 = cache.run(["echo", "bypass"], bypass_cache=True, check_allowed=False)
 
         # Both should be misses
         stats = cache.get_stats()
-        assert stats['hits'] == 0
+        assert stats["hits"] == 0
 
     def test_invalidate_specific_command(self):
         """invalidate should clear specific cached command."""
         cache = SubprocessCache(default_ttl=60.0)
 
-        cache.run(['echo', 'a'], check_allowed=False)
-        cache.run(['echo', 'b'], check_allowed=False)
+        cache.run(["echo", "a"], check_allowed=False)
+        cache.run(["echo", "b"], check_allowed=False)
 
-        cache.invalidate(['echo', 'a'])
+        cache.invalidate(["echo", "a"])
 
         # 'a' should be a miss, 'b' should be a hit
         stats_before = cache.get_stats()
-        cache.run(['echo', 'a'], check_allowed=False)
+        cache.run(["echo", "a"], check_allowed=False)
         stats_after = cache.get_stats()
 
-        assert stats_after['misses'] == stats_before['misses'] + 1
+        assert stats_after["misses"] == stats_before["misses"] + 1
 
     def test_safe_run_validates_command(self):
         """safe_run should reject commands not in allowlist."""
         with pytest.raises(SubprocessError) as exc_info:
-            safe_run(['rm', '-rf', '/'], check_allowed=True)
+            safe_run(["rm", "-rf", "/"], check_allowed=True)
 
         assert "not in allowlist" in str(exc_info.value)
 
     def test_safe_run_allows_known_commands(self):
         """safe_run should allow commands in allowlist."""
         # 'which' should be in the allowlist
-        result = safe_run(['which', 'python3'], check_allowed=True)
+        result = safe_run(["which", "python3"], check_allowed=True)
         # Should complete without raising
         assert result is not None
 

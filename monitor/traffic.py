@@ -1,4 +1,5 @@
 """Traffic breakdown by process/service."""
+
 import subprocess
 import time
 from collections import defaultdict
@@ -17,6 +18,7 @@ logger = get_logger(__name__)
 @dataclass
 class ProcessTraffic:
     """Traffic statistics for a single process."""
+
     pid: int
     name: str
     bytes_in: int = 0
@@ -36,98 +38,98 @@ class ProcessTraffic:
 
         # Map common process names to friendly names
         name_map = {
-            'google chrome': 'Chrome',
-            'google chrome helper': 'Chrome',
-            'chrome': 'Chrome',
-            'firefox': 'Firefox',
-            'safari': 'Safari',
-            'safarinetworkingprivacy': 'Safari',
-            'safarilaunchchecker': 'Safari',
-            'microsoft edge': 'Edge',
-            'msedge': 'Edge',
-            'slack': 'Slack',
-            'slack helper': 'Slack',
-            'zoom.us': 'Zoom',
-            'spotify': 'Spotify',
-            'spotify helper': 'Spotify',
-            'discord': 'Discord',
-            'discord helper': 'Discord',
-            'telegram': 'Telegram',
-            'whatsapp': 'WhatsApp',
-            'signal': 'Signal',
-            'messages': 'Messages',
-            'facetime': 'FaceTime',
-            'mail': 'Mail',
-            'outlook': 'Outlook',
-            'microsoft outlook': 'Outlook',
-            'thunderbird': 'Thunderbird',
-            'dropbox': 'Dropbox',
-            'onedrive': 'OneDrive',
-            'google drive': 'Google Drive',
-            'icloud': 'iCloud',
-            'cloudd': 'iCloud',
-            'bird': 'iCloud',
-            'code': 'VS Code',
-            'code helper': 'VS Code',
-            'cursor': 'Cursor',
-            'cursor helper': 'Cursor',
-            'node': 'Node.js',
-            'python': 'Python',
-            'python3': 'Python',
-            'java': 'Java',
-            'docker': 'Docker',
-            'com.docker': 'Docker',
-            'vpnkit': 'Docker',
-            'ssh': 'SSH',
-            'sshd': 'SSH',
-            'git': 'Git',
-            'git-remote-https': 'Git',
-            'curl': 'curl',
-            'wget': 'wget',
-            'brew': 'Homebrew',
-            'softwareupdated': 'Software Update',
-            'apsd': 'Apple Push',
-            'appstoreagent': 'App Store',
-            'storedownloadd': 'App Store',
-            'nsurlsessiond': 'System Downloads',
-            'com.apple.nsurlsessiond': 'System Downloads',
-            'trustd': 'System Security',
-            'syspolicyd': 'System Security',
-            'networkserviceproxy': 'Network Proxy',
-            'rapportd': 'Rapport (Handoff)',
-            'sharingd': 'AirDrop/Sharing',
-            'identityservicesd': 'Apple ID',
-            'parsecd': 'Siri',
-            'assistantd': 'Siri',
-            'mediaremoted': 'Media Remote',
-            'itunescloudd': 'iTunes/Music',
-            'music': 'Music',
-            'podcasts': 'Podcasts',
-            'tv': 'Apple TV',
-            'netflix': 'Netflix',
-            'prime video': 'Prime Video',
-            'vlc': 'VLC',
-            'iina': 'IINA',
-            'transmit': 'Transmit',
-            'filezilla': 'FileZilla',
-            'cyberduck': 'Cyberduck',
-            'tower': 'Tower (Git)',
-            'sourcetree': 'SourceTree',
-            'postman': 'Postman',
-            'insomnia': 'Insomnia',
-            'charles': 'Charles Proxy',
-            'wireshark': 'Wireshark',
-            'little snitch': 'Little Snitch',
-            'lulu': 'Lulu Firewall',
-            'tunnelblick': 'Tunnelblick VPN',
-            'openvpn': 'OpenVPN',
-            'wireguard': 'WireGuard',
-            'nordvpn': 'NordVPN',
-            'expressvpn': 'ExpressVPN',
-            'steam': 'Steam',
-            'steam helper': 'Steam',
-            'epic games': 'Epic Games',
-            'battle.net': 'Battle.net',
+            "google chrome": "Chrome",
+            "google chrome helper": "Chrome",
+            "chrome": "Chrome",
+            "firefox": "Firefox",
+            "safari": "Safari",
+            "safarinetworkingprivacy": "Safari",
+            "safarilaunchchecker": "Safari",
+            "microsoft edge": "Edge",
+            "msedge": "Edge",
+            "slack": "Slack",
+            "slack helper": "Slack",
+            "zoom.us": "Zoom",
+            "spotify": "Spotify",
+            "spotify helper": "Spotify",
+            "discord": "Discord",
+            "discord helper": "Discord",
+            "telegram": "Telegram",
+            "whatsapp": "WhatsApp",
+            "signal": "Signal",
+            "messages": "Messages",
+            "facetime": "FaceTime",
+            "mail": "Mail",
+            "outlook": "Outlook",
+            "microsoft outlook": "Outlook",
+            "thunderbird": "Thunderbird",
+            "dropbox": "Dropbox",
+            "onedrive": "OneDrive",
+            "google drive": "Google Drive",
+            "icloud": "iCloud",
+            "cloudd": "iCloud",
+            "bird": "iCloud",
+            "code": "VS Code",
+            "code helper": "VS Code",
+            "cursor": "Cursor",
+            "cursor helper": "Cursor",
+            "node": "Node.js",
+            "python": "Python",
+            "python3": "Python",
+            "java": "Java",
+            "docker": "Docker",
+            "com.docker": "Docker",
+            "vpnkit": "Docker",
+            "ssh": "SSH",
+            "sshd": "SSH",
+            "git": "Git",
+            "git-remote-https": "Git",
+            "curl": "curl",
+            "wget": "wget",
+            "brew": "Homebrew",
+            "softwareupdated": "Software Update",
+            "apsd": "Apple Push",
+            "appstoreagent": "App Store",
+            "storedownloadd": "App Store",
+            "nsurlsessiond": "System Downloads",
+            "com.apple.nsurlsessiond": "System Downloads",
+            "trustd": "System Security",
+            "syspolicyd": "System Security",
+            "networkserviceproxy": "Network Proxy",
+            "rapportd": "Rapport (Handoff)",
+            "sharingd": "AirDrop/Sharing",
+            "identityservicesd": "Apple ID",
+            "parsecd": "Siri",
+            "assistantd": "Siri",
+            "mediaremoted": "Media Remote",
+            "itunescloudd": "iTunes/Music",
+            "music": "Music",
+            "podcasts": "Podcasts",
+            "tv": "Apple TV",
+            "netflix": "Netflix",
+            "prime video": "Prime Video",
+            "vlc": "VLC",
+            "iina": "IINA",
+            "transmit": "Transmit",
+            "filezilla": "FileZilla",
+            "cyberduck": "Cyberduck",
+            "tower": "Tower (Git)",
+            "sourcetree": "SourceTree",
+            "postman": "Postman",
+            "insomnia": "Insomnia",
+            "charles": "Charles Proxy",
+            "wireshark": "Wireshark",
+            "little snitch": "Little Snitch",
+            "lulu": "Lulu Firewall",
+            "tunnelblick": "Tunnelblick VPN",
+            "openvpn": "OpenVPN",
+            "wireguard": "WireGuard",
+            "nordvpn": "NordVPN",
+            "expressvpn": "ExpressVPN",
+            "steam": "Steam",
+            "steam helper": "Steam",
+            "epic games": "Epic Games",
+            "battle.net": "Battle.net",
         }
 
         for key, friendly_name in name_map.items():
@@ -135,12 +137,13 @@ class ProcessTraffic:
                 return friendly_name
 
         # Capitalize first letter if not mapped
-        return self.name.split()[0].capitalize() if self.name else 'Unknown'
+        return self.name.split()[0].capitalize() if self.name else "Unknown"
 
 
 @dataclass
 class ServiceCategory:
     """Traffic grouped by service category."""
+
     name: str
     bytes_in: int = 0
     bytes_out: int = 0
@@ -154,39 +157,39 @@ class ServiceCategory:
 # Port to service category mapping
 PORT_CATEGORIES = {
     # Web browsing
-    80: 'Web',
-    443: 'Web (HTTPS)',
-    8080: 'Web',
-    8443: 'Web',
+    80: "Web",
+    443: "Web (HTTPS)",
+    8080: "Web",
+    8443: "Web",
     # Email
-    25: 'Email',
-    465: 'Email',
-    587: 'Email',
-    993: 'Email (IMAP)',
-    995: 'Email (POP)',
+    25: "Email",
+    465: "Email",
+    587: "Email",
+    993: "Email (IMAP)",
+    995: "Email (POP)",
     # File transfer
-    20: 'FTP',
-    21: 'FTP',
-    22: 'SSH/SFTP',
+    20: "FTP",
+    21: "FTP",
+    22: "SSH/SFTP",
     # Streaming
-    554: 'Streaming (RTSP)',
-    1935: 'Streaming (RTMP)',
+    554: "Streaming (RTSP)",
+    1935: "Streaming (RTMP)",
     # Gaming
-    3478: 'Gaming/Voice',
-    3479: 'Gaming/Voice',
-    3480: 'Gaming/Voice',
+    3478: "Gaming/Voice",
+    3479: "Gaming/Voice",
+    3480: "Gaming/Voice",
     # Cloud services
-    5222: 'Messaging (XMPP)',
-    5223: 'Apple Push',
+    5222: "Messaging (XMPP)",
+    5223: "Apple Push",
     # DNS
-    53: 'DNS',
-    853: 'DNS (TLS)',
+    53: "DNS",
+    853: "DNS (TLS)",
     # VPN
-    500: 'VPN (IKE)',
-    1194: 'VPN (OpenVPN)',
-    1701: 'VPN (L2TP)',
-    4500: 'VPN (NAT-T)',
-    51820: 'VPN (WireGuard)',
+    500: "VPN (IKE)",
+    1194: "VPN (OpenVPN)",
+    1701: "VPN (L2TP)",
+    4500: "VPN (NAT-T)",
+    51820: "VPN (WireGuard)",
 }
 
 
@@ -213,9 +216,9 @@ class TrafficMonitor:
         connections_by_pid: Dict[int, List[tuple]] = defaultdict(list)
 
         try:
-            connections = psutil.net_connections(kind='inet')
+            connections = psutil.net_connections(kind="inet")
             for conn in connections:
-                if conn.pid and conn.status == 'ESTABLISHED':
+                if conn.pid and conn.status == "ESTABLISHED":
                     local_port = conn.laddr.port if conn.laddr else 0
                     remote_port = conn.raddr.port if conn.raddr else 0
                     connections_by_pid[conn.pid].append((local_port, remote_port))
@@ -233,19 +236,19 @@ class TrafficMonitor:
             # Run nettop for one sample in delta mode
             # -P: show by process, -L 1: 1 sample, -d: delta mode, -J bytes
             proc = self._subprocess_cache.run(
-                ['nettop', '-P', '-L', '1', '-J', 'bytes_in,bytes_out'],
+                ["nettop", "-P", "-L", "1", "-J", "bytes_in,bytes_out"],
                 ttl=2.0,  # Cache briefly
-                timeout=INTERVALS.NETTOP_TIMEOUT_SECONDS
+                timeout=INTERVALS.NETTOP_TIMEOUT_SECONDS,
             )
 
             if proc.returncode == 0:
                 # Parse nettop output
                 # Format: process_name      bytes_in    bytes_out
-                lines = proc.stdout.strip().split('\n')
+                lines = proc.stdout.strip().split("\n")
 
                 for line in lines:
                     # Skip header and empty lines
-                    if not line.strip() or 'bytes_in' in line.lower() or line.startswith('time'):
+                    if not line.strip() or "bytes_in" in line.lower() or line.startswith("time"):
                         continue
 
                     # Split by whitespace
@@ -256,15 +259,15 @@ class TrafficMonitor:
                             proc_info = parts[0].strip()
 
                             # Skip time-like entries
-                            if ':' in proc_info and proc_info.count(':') >= 1:
+                            if ":" in proc_info and proc_info.count(":") >= 1:
                                 # Might be timestamp like "17:40:29"
-                                if all(c.isdigit() or c == ':' for c in proc_info):
+                                if all(c.isdigit() or c == ":" for c in proc_info):
                                     continue
 
                             # Extract process name (remove .pid suffix if present)
-                            if '.' in proc_info:
+                            if "." in proc_info:
                                 # Check if last part is a number (PID)
-                                name_parts = proc_info.rsplit('.', 1)
+                                name_parts = proc_info.rsplit(".", 1)
                                 if name_parts[-1].isdigit():
                                     proc_name = name_parts[0]
                                 else:
@@ -273,7 +276,7 @@ class TrafficMonitor:
                                 proc_name = proc_info
 
                             # Skip system/empty names
-                            if not proc_name or proc_name in ('time', 'interface', '-'):
+                            if not proc_name or proc_name in ("time", "interface", "-"):
                                 continue
 
                             # Last two numeric values are usually bytes_in and bytes_out
@@ -296,7 +299,7 @@ class TrafficMonitor:
                                 if proc_name in result:
                                     result[proc_name] = (
                                         result[proc_name][0] + bytes_in,
-                                        result[proc_name][1] + bytes_out
+                                        result[proc_name][1] + bytes_out,
                                     )
                                 else:
                                     result[proc_name] = (bytes_in, bytes_out)
@@ -316,23 +319,23 @@ class TrafficMonitor:
             # Use lsof with short timeout - this works without root on macOS
             # -i: network connections, -n: no DNS, -P: port numbers, +c0: full command
             result = self._subprocess_cache.run(
-                ['lsof', '+c', '0', '-i', '-n', '-P'],
+                ["lsof", "+c", "0", "-i", "-n", "-P"],
                 ttl=3.0,  # Cache briefly
-                timeout=INTERVALS.LSOF_TIMEOUT_SECONDS
+                timeout=INTERVALS.LSOF_TIMEOUT_SECONDS,
             )
 
             if result.returncode == 0:
-                lines = result.stdout.strip().split('\n')
+                lines = result.stdout.strip().split("\n")
                 for line in lines[1:]:  # Skip header
                     parts = line.split()
                     if len(parts) >= 1:
                         # Clean up process name
-                        proc_name = parts[0].replace('\\x20', ' ').strip()
+                        proc_name = parts[0].replace("\\x20", " ").strip()
                         # Skip kernel and system
-                        if proc_name in ('kernel', 'launchd', 'mDNSRespo', 'mDNSResponder'):
+                        if proc_name in ("kernel", "launchd", "mDNSRespo", "mDNSResponder"):
                             continue
                         # Count connections (ESTABLISHED or has remote address)
-                        if 'ESTABLISHED' in line or '->' in line or 'LISTEN' not in line:
+                        if "ESTABLISHED" in line or "->" in line or "LISTEN" not in line:
                             process_connections[proc_name] += 1
         except subprocess.TimeoutExpired:
             pass  # nosec B110 - lsof timeout expected
@@ -353,11 +356,7 @@ class TrafficMonitor:
             name = self._get_process_name(pid)
             if name and name not in seen_names:
                 seen_names.add(name)
-                traffic = ProcessTraffic(
-                    pid=pid,
-                    name=name,
-                    connections=len(conns)
-                )
+                traffic = ProcessTraffic(pid=pid, name=name, connections=len(conns))
                 traffic_list.append(traffic)
 
         # Add any additional from connection scan
@@ -365,24 +364,17 @@ class TrafficMonitor:
         for proc_name, conn_count in additional_counts.items():
             if proc_name not in seen_names:
                 seen_names.add(proc_name)
-                traffic = ProcessTraffic(
-                    pid=0,
-                    name=proc_name,
-                    connections=conn_count
-                )
+                traffic = ProcessTraffic(pid=0, name=proc_name, connections=conn_count)
                 traffic_list.append(traffic)
 
         # Sort by connections (most active first)
-        traffic_list.sort(
-            key=lambda t: t.connections,
-            reverse=True
-        )
+        traffic_list.sort(key=lambda t: t.connections, reverse=True)
 
         return traffic_list
 
     def get_traffic_summary(self) -> List[Tuple[str, int, int, int]]:
         """Get a summary of traffic by process.
-        
+
         Returns list of (display_name, bytes_in, bytes_out, connections)
         """
         traffic = self.get_traffic_by_process()
@@ -397,16 +389,13 @@ class TrafficMonitor:
                 aggregated[name] = (
                     prev[0] + t.bytes_in,
                     prev[1] + t.bytes_out,
-                    prev[2] + t.connections
+                    prev[2] + t.connections,
                 )
             else:
                 aggregated[name] = (t.bytes_in, t.bytes_out, t.connections)
 
         # Convert to list and sort
-        result = [
-            (name, data[0], data[1], data[2])
-            for name, data in aggregated.items()
-        ]
+        result = [(name, data[0], data[1], data[2]) for name, data in aggregated.items()]
 
         # Sort by total bytes, then connections
         result.sort(key=lambda x: (x[1] + x[2], x[3]), reverse=True)
@@ -415,7 +404,7 @@ class TrafficMonitor:
 
     def get_top_processes(self, limit: int = 10) -> List[Tuple[str, int, int, int]]:
         """Get top N processes by traffic.
-        
+
         Returns list of (display_name, bytes_in, bytes_out, connections)
         """
         summary = self.get_traffic_summary()
@@ -427,10 +416,10 @@ class TrafficMonitor:
 
         # Get connections and categorize by port
         try:
-            connections = psutil.net_connections(kind='inet')
+            connections = psutil.net_connections(kind="inet")
 
             for conn in connections:
-                if conn.status != 'ESTABLISHED':
+                if conn.status != "ESTABLISHED":
                     continue
 
                 # Determine category from port
@@ -438,8 +427,7 @@ class TrafficMonitor:
                 local_port = conn.laddr.port if conn.laddr else 0
 
                 category_name = PORT_CATEGORIES.get(
-                    remote_port,
-                    PORT_CATEGORIES.get(local_port, 'Other')
+                    remote_port, PORT_CATEGORIES.get(local_port, "Other")
                 )
 
                 # Get process name

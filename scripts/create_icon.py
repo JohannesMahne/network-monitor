@@ -18,7 +18,7 @@ def create_network_icon(size: int) -> Image.Image:
     # Create high-res canvas (2x for antialiasing)
     scale = 2
     canvas_size = size * scale
-    img = Image.new('RGBA', (canvas_size, canvas_size), (0, 0, 0, 0))
+    img = Image.new("RGBA", (canvas_size, canvas_size), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
 
     # Colors - teal/cyan network theme
@@ -34,12 +34,12 @@ def create_network_icon(size: int) -> Image.Image:
     draw.rounded_rectangle(
         [padding + 4, padding + 4, canvas_size - padding + 4, canvas_size - padding + 4],
         radius=corner_radius,
-        fill=(0, 0, 0, 40)
+        fill=(0, 0, 0, 40),
     )
     draw.rounded_rectangle(
         [padding, padding, canvas_size - padding, canvas_size - padding],
         radius=corner_radius,
-        fill=bg_color
+        fill=bg_color,
     )
 
     # Draw network signal waves (WiFi-like arcs)
@@ -49,21 +49,22 @@ def create_network_icon(size: int) -> Image.Image:
     # Draw three arcs
     arc_widths = [canvas_size * 0.15, canvas_size * 0.28, canvas_size * 0.41]
     for i, width in enumerate(arc_widths):
-        arc_bbox = [
-            center_x - width,
-            center_y - width,
-            center_x + width,
-            center_y + width
-        ]
+        arc_bbox = [center_x - width, center_y - width, center_x + width, center_y + width]
         # Draw arc (top portion only)
-        draw.arc(arc_bbox, start=225, end=315, fill=accent_color, width=max(3, int(canvas_size * 0.035)))
+        draw.arc(
+            arc_bbox, start=225, end=315, fill=accent_color, width=max(3, int(canvas_size * 0.035))
+        )
 
     # Draw center dot
     dot_radius = canvas_size * 0.045
     draw.ellipse(
-        [center_x - dot_radius, center_y - dot_radius,
-         center_x + dot_radius, center_y + dot_radius],
-        fill=accent_color
+        [
+            center_x - dot_radius,
+            center_y - dot_radius,
+            center_x + dot_radius,
+            center_y + dot_radius,
+        ],
+        fill=accent_color,
     )
 
     # Draw speed arrows (up and down)
@@ -121,9 +122,9 @@ def create_icns(iconset_dir: Path, output_path: Path):
     """Convert iconset to icns using iconutil."""
     try:
         subprocess.run(
-            ['iconutil', '-c', 'icns', str(iconset_dir), '-o', str(output_path)],
+            ["iconutil", "-c", "icns", str(iconset_dir), "-o", str(output_path)],
             check=True,
-            capture_output=True
+            capture_output=True,
         )
         print(f"Created: {output_path}")
     except subprocess.CalledProcessError as e:
@@ -154,5 +155,5 @@ def main():
     print(f"Preview saved: {preview_path}")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

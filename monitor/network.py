@@ -11,6 +11,7 @@ Example:
     >>> if current:
     ...     print(f"Download: {current.download_speed:.0f} B/s")
 """
+
 from __future__ import annotations
 
 import time

@@ -5,13 +5,14 @@ using performSelectorOnMainThread for UI thread safety.
 
 Usage:
     from app.timer import MenuAwareTimer
-    
+
     def on_tick(timer):
         print("Tick!")
-    
+
     timer = MenuAwareTimer(on_tick, interval=2.0)
     timer.start()
 """
+
 import threading
 import time
 from typing import Callable, Optional
@@ -44,6 +45,7 @@ def _get_timer_callback_helper():
 
         class _MenuAwareTimerHelper(NSObject):
             """Helper object to dispatch timer callbacks to main thread."""
+
             callback_ref = None
             timer_ref = None
 
@@ -61,13 +63,13 @@ def _get_timer_callback_helper():
 
 class MenuAwareTimer:
     """Timer that continues running even when menu is open.
-    
+
     Uses a background thread with performSelectorOnMainThread to ensure
     UI updates happen on the main thread, even during menu tracking.
-    
+
     Attributes:
         interval: Time between timer ticks in seconds.
-    
+
     Example:
         >>> timer = MenuAwareTimer(callback, interval=1.0)
         >>> timer.start()
@@ -77,7 +79,7 @@ class MenuAwareTimer:
 
     def __init__(self, callback: Callable, interval: float):
         """Initialize the timer.
-        
+
         Args:
             callback: Function to call on each tick. Receives the timer as argument.
             interval: Time between ticks in seconds.
@@ -115,7 +117,7 @@ class MenuAwareTimer:
             if self._running:
                 # Dispatch to main thread using performSelectorOnMainThread
                 helper.performSelectorOnMainThread_withObject_waitUntilDone_(
-                    'doCallback:', None, False
+                    "doCallback:", None, False
                 )
 
     def start(self) -> None:

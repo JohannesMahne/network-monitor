@@ -1,4 +1,5 @@
 """Tests for the app module (events, dependencies, controller)."""
+
 import time
 
 import pytest
@@ -155,11 +156,7 @@ class TestEvent:
 
     def test_event_creation(self):
         """Events should be created with correct attributes."""
-        event = Event(
-            event_type=EventType.SPEED_UPDATE,
-            data={"upload": 1000},
-            source="test"
-        )
+        event = Event(event_type=EventType.SPEED_UPDATE, data={"upload": 1000}, source="test")
 
         assert event.event_type == EventType.SPEED_UPDATE
         assert event.data["upload"] == 1000
@@ -180,12 +177,18 @@ class TestAppDependencies:
 
     def test_create_mock_dependencies(self):
         """Mock dependencies should be creatable."""
+        from unittest.mock import MagicMock
+
         deps = AppDependencies(
             network_stats=MockNetworkStats(),
             connection_detector=MockConnectionDetector(),
             issue_detector=MockIssueDetector(),
             network_scanner=MockNetworkScanner(),
             traffic_monitor=MockTrafficMonitor(),
+            bandwidth_monitor=MagicMock(),
+            dns_monitor=MagicMock(),
+            geolocation_service=MagicMock(),
+            connection_tracker=MagicMock(),
             store=MockJsonStore(),
             settings=MockSettingsManager(),
             launch_manager=MockLaunchAgentManager(),
@@ -196,12 +199,18 @@ class TestAppDependencies:
 
     def test_dependencies_accessible(self):
         """All dependencies should be accessible."""
+        from unittest.mock import MagicMock
+
         deps = AppDependencies(
             network_stats=MockNetworkStats(),
             connection_detector=MockConnectionDetector(),
             issue_detector=MockIssueDetector(),
             network_scanner=MockNetworkScanner(),
             traffic_monitor=MockTrafficMonitor(),
+            bandwidth_monitor=MagicMock(),
+            dns_monitor=MagicMock(),
+            geolocation_service=MagicMock(),
+            connection_tracker=MagicMock(),
             store=MockJsonStore(),
             settings=MockSettingsManager(),
             launch_manager=MockLaunchAgentManager(),
@@ -219,12 +228,18 @@ class TestAppController:
     @pytest.fixture
     def mock_deps(self):
         """Create mock dependencies for testing."""
+        from unittest.mock import MagicMock
+
         return AppDependencies(
             network_stats=MockNetworkStats(),
             connection_detector=MockConnectionDetector(),
             issue_detector=MockIssueDetector(),
             network_scanner=MockNetworkScanner(),
             traffic_monitor=MockTrafficMonitor(),
+            bandwidth_monitor=MagicMock(),
+            dns_monitor=MagicMock(),
+            geolocation_service=MagicMock(),
+            connection_tracker=MagicMock(),
             store=MockJsonStore(),
             settings=MockSettingsManager(),
             launch_manager=MockLaunchAgentManager(),
@@ -274,9 +289,9 @@ class TestAppController:
 
         state = controller.update()
 
-        assert 'connection' in state
-        assert 'stats' in state
-        assert 'today_totals' in state
+        assert "connection" in state
+        assert "stats" in state
+        assert "today_totals" in state
 
     def test_connection_change_publishes_event(self, mock_deps):
         """Connection change should publish event."""
@@ -294,7 +309,7 @@ class TestAppController:
         controller.update()
 
         assert len(events) == 1
-        assert events[0].data['new'] == "WiFi:NewNetwork"
+        assert events[0].data["new"] == "WiFi:NewNetwork"
 
     def test_reset_session(self, mock_deps):
         """Reset session should clear state."""
