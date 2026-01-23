@@ -42,25 +42,26 @@ class GraphWindow:
         """Show the window with graphs (runs in background thread)."""
         try:
             import matplotlib
-            # Try TkAgg first (if tkinter available), fallback to Agg + save
-            try:
-                matplotlib.use('TkAgg')
-                from matplotlib import pyplot as plt
-                use_tk = True
-            except ImportError:
-                # Tkinter not available - save to file and open
-                matplotlib.use('Agg')
-                from matplotlib import pyplot as plt
-                use_tk = False
+            # Use Agg backend and save to file (more reliable for menu bar apps)
+            matplotlib.use('Agg')
+            from matplotlib import pyplot as plt
+            import tempfile
+            import subprocess
 
             # Create figure with subplots for different views
             fig = plt.figure(figsize=(12, 8))
             fig.suptitle('Network Monitor - Historical Data', fontsize=14, fontweight='bold')
 
             # Get data
-            daily_data = self.store.get_daily_totals(days=30)
-            weekly_data = self.store.get_weekly_totals()
-            monthly_data = self.store.get_monthly_totals()
+            try:
+                daily_data = self.store.get_daily_totals(days=30)
+                weekly_data = self.store.get_weekly_totals()
+                monthly_data = self.store.get_monthly_totals()
+            except Exception as e:
+                logger.error(f"Error fetching data: {e}", exc_info=True)
+                daily_data = []
+                weekly_data = {}
+                monthly_data = {}
 
             # Create subplots
             ax1 = fig.add_subplot(2, 2, 1)
@@ -133,29 +134,37 @@ class GraphWindow:
 
             plt.tight_layout()
 
-            if use_tk:
-                # Show window (non-blocking)
-                plt.show(block=False)
-                logger.info("Graph window opened")
-            else:
-                # Save to file and open
-                import tempfile
-                graph_file = tempfile.NamedTemporaryFile(suffix='.png', delete=False)
+            # Save to file and open (more reliable for menu bar apps)
+            graph_file = tempfile.NamedTemporaryFile(suffix='.png', delete=False)
+            graph_file.close()  # Close the file handle so we can write to it
+            
+            try:
                 plt.savefig(graph_file.name, dpi=100, bbox_inches='tight')
                 plt.close(fig)
                 
-                # Open in default image viewer
-                import subprocess
-                subprocess.run(['open', graph_file.name])
+                # Open in default image viewer (Preview on macOS)
+                subprocess.run(['open', graph_file.name], check=True)
                 logger.info(f"Graph saved and opened: {graph_file.name}")
+            except Exception as e:
+                logger.error(f"Error saving/opening graph: {e}", exc_info=True)
+                # Try to clean up
+                try:
+                    import os
+                    os.unlink(graph_file.name)
+                except:
+                    pass
+                raise
 
         except Exception as e:
             logger.error(f"Error showing graph window: {e}", exc_info=True)
+            # Show error notification on main thread
             import rumps
-            rumps.alert(
+            # Use notification instead of alert (less intrusive)
+            rumps.notification(
                 title="Graph Window Error",
-                message=f"Could not open graph window: {e}\n\nMake sure matplotlib is properly installed.",
-                ok="OK"
+                subtitle="Could not open graphs",
+                message=f"Error: {str(e)[:100]}",
+                sound=False
             )
         finally:
             self._window_open = False

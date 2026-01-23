@@ -1668,9 +1668,19 @@ class NetworkMonitorApp(rumps.App):
 
     def _show_detailed_graphs(self, _):
         """Show detailed historical graphs in a popup window."""
-        from app.views.graph_window import GraphWindow
-        graph_window = GraphWindow(self.store)
-        graph_window.show()
+        try:
+            from app.views.graph_window import GraphWindow
+            graph_window = GraphWindow(self.store)
+            graph_window.show()
+            logger.info("Graph window requested")
+        except Exception as e:
+            logger.error(f"Error creating graph window: {e}", exc_info=True)
+            rumps.notification(
+                title="Graph Window Error",
+                subtitle="Could not open",
+                message=str(e)[:100],
+                sound=False
+            )
 
     def _show_alert_on_main_thread(self, title: str, message: str):
         """Show a rumps alert on the main thread (required by macOS)."""
