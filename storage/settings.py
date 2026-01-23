@@ -49,10 +49,30 @@ class ConnectionBudget:
 
 
 @dataclass
+class BandwidthAlertSettings:
+    """Settings for bandwidth throttling alerts."""
+    enabled: bool = False
+    threshold_mbps: float = 10.0  # Default 10 Mbps per app
+    window_seconds: int = 30  # Time window for averaging
+    per_app_thresholds: Dict[str, float] = field(default_factory=dict)  # app_name -> threshold_mbps
+
+
+@dataclass
+class NotificationSettings:
+    """Settings for network change notifications."""
+    notify_new_device: bool = True
+    notify_quality_degraded: bool = True
+    notify_vpn_disconnect: bool = True
+    quality_degraded_threshold: int = 30  # Quality score below this triggers notification
+
+
+@dataclass
 class AppSettings:
     """Application settings."""
     title_display: str = "latency"    # What to show in menu bar
     budgets: Dict[str, dict] = field(default_factory=dict)  # connection_key -> budget
+    bandwidth_alerts: dict = field(default_factory=dict)  # Bandwidth alert settings
+    notifications: dict = field(default_factory=dict)  # Notification preferences
 
     # Latency thresholds (industry standard)
     # https://www.pingdom.com/blog/latency-benchmarks/
@@ -64,6 +84,8 @@ class AppSettings:
         return {
             "title_display": self.title_display,
             "budgets": self.budgets,
+            "bandwidth_alerts": self.bandwidth_alerts,
+            "notifications": self.notifications,
             "latency_good": self.latency_good,
             "latency_ok": self.latency_ok,
             "latency_poor": self.latency_poor,
@@ -74,6 +96,8 @@ class AppSettings:
         return cls(
             title_display=data.get("title_display", "latency"),
             budgets=data.get("budgets", {}),
+            bandwidth_alerts=data.get("bandwidth_alerts", {}),
+            notifications=data.get("notifications", {}),
             latency_good=data.get("latency_good", 50),
             latency_ok=data.get("latency_ok", 100),
             latency_poor=data.get("latency_poor", 150),
@@ -215,6 +239,103 @@ class SettingsManager:
             "remaining_bytes": remaining,
             "period": budget.period
         }
+
+    # === Bandwidth Alerts ===
+
+    def get_bandwidth_alert_settings(self) -> BandwidthAlertSettings:
+        """Get bandwidth alert settings."""
+        alerts_data = self._settings.bandwidth_alerts
+        if not alerts_data:
+            return BandwidthAlertSettings()
+        
+        return BandwidthAlertSettings(
+            enabled=alerts_data.get("enabled", False),
+            threshold_mbps=alerts_data.get("threshold_mbps", 10.0),
+            window_seconds=alerts_data.get("window_seconds", 30),
+            per_app_thresholds=alerts_data.get("per_app_thresholds", {})
+        )
+
+    def set_bandwidth_alert_settings(self, settings: BandwidthAlertSettings) -> None:
+        """Set bandwidth alert settings."""
+        with self._lock:
+            self._settings.bandwidth_alerts = {
+                "enabled": settings.enabled,
+                "threshold_mbps": settings.threshold_mbps,
+                "window_seconds": settings.window_seconds,
+                "per_app_thresholds": settings.per_app_thresholds
+            }
+            self._save()
+
+    def get_bandwidth_thresholds(self) -> Dict[str, float]:
+        """Get bandwidth thresholds for all apps.
+        
+        Returns dict mapping app_name -> threshold_mbps.
+        Uses per-app thresholds if set, otherwise default threshold.
+        """
+        alerts = self.get_bandwidth_alert_settings()
+        if not alerts.enabled:
+            return {}
+        
+        thresholds = {}
+        # Start with default threshold for all apps
+        default_threshold = alerts.threshold_mbps
+        
+        # Override with per-app thresholds
+        for app_name, threshold in alerts.per_app_thresholds.items():
+            thresholds[app_name] = threshold
+        
+        return thresholds
+
+    def set_app_bandwidth_threshold(self, app_name: str, threshold_mbps: float) -> None:
+        """Set bandwidth threshold for a specific app."""
+        alerts = self.get_bandwidth_alert_settings()
+        alerts.per_app_thresholds[app_name] = threshold_mbps
+        self.set_bandwidth_alert_settings(alerts)
+
+    # === Notification Settings ===
+
+    def get_notification_settings(self) -> NotificationSettings:
+        """Get notification settings."""
+        notif_data = self._settings.notifications
+        if not notif_data:
+            return NotificationSettings()
+        
+        return NotificationSettings(
+            notify_new_device=notif_data.get("notify_new_device", True),
+            notify_quality_degraded=notif_data.get("notify_quality_degraded", True),
+            notify_vpn_disconnect=notif_data.get("notify_vpn_disconnect", True),
+            quality_degraded_threshold=notif_data.get("quality_degraded_threshold", 30)
+        )
+
+    def set_notification_settings(self, settings: NotificationSettings) -> None:
+        """Set notification settings."""
+        with self._lock:
+            self._settings.notifications = {
+                "notify_new_device": settings.notify_new_device,
+                "notify_quality_degraded": settings.notify_quality_degraded,
+                "notify_vpn_disconnect": settings.notify_vpn_disconnect,
+                "quality_degraded_threshold": settings.quality_degraded_threshold
+            }
+            self._save()
+
+    # === Keyboard Shortcuts ===
+
+    def get_keyboard_shortcut(self) -> str:
+        """Get current keyboard shortcut.
+        
+        Returns:
+            Shortcut string (e.g., "cmd+shift+n")
+        """
+        shortcuts = self._settings.notifications.get("keyboard_shortcut", "cmd+shift+n")
+        return shortcuts
+
+    def set_keyboard_shortcut(self, shortcut: str) -> None:
+        """Set keyboard shortcut."""
+        with self._lock:
+            if "notifications" not in self._settings.notifications:
+                self._settings.notifications = {}
+            self._settings.notifications["keyboard_shortcut"] = shortcut
+            self._save()
 
 
 def get_settings_manager(data_dir: Optional[Path] = None) -> SettingsManager:

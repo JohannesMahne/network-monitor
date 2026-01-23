@@ -18,7 +18,7 @@ from typing import List, Optional, Tuple
 
 from app.dependencies import AppDependencies
 from app.events import EventBus, EventType, get_event_bus
-from config import INTERVALS, THRESHOLDS, get_logger
+from config import INTERVALS, NETWORK, THRESHOLDS, get_logger
 
 logger = get_logger(__name__)
 
@@ -61,6 +61,10 @@ class AppController:
         self._upload_history: deque = deque(maxlen=THRESHOLDS.SPARKLINE_HISTORY_SIZE)
         self._download_history: deque = deque(maxlen=THRESHOLDS.SPARKLINE_HISTORY_SIZE)
         self._latency_history: deque = deque(maxlen=THRESHOLDS.SPARKLINE_HISTORY_SIZE)
+
+        # Budget notification tracking (avoid repeated notifications)
+        self._budget_warning_notified: set = set()  # connection keys that got warning
+        self._budget_exceeded_notified: set = set()  # connection keys that got exceeded
 
         logger.info("AppController initialized")
 
@@ -202,6 +206,14 @@ class AppController:
         # Check budget status
         state['budget_status'] = self._get_budget_status(conn_key, today_sent, today_recv)
 
+        # Check bandwidth thresholds
+        self._check_bandwidth_thresholds()
+
+        # Check DNS performance
+        self._check_dns_performance(current_time)
+        state['dns_latency'] = self.deps.dns_monitor.get_current_dns_latency()
+        state['avg_dns_latency'] = self.deps.dns_monitor.get_average_dns_latency()
+
         return state
 
     def _handle_connection_change(self, new_conn_key: str) -> None:
@@ -309,20 +321,26 @@ class AppController:
 
         status = self.deps.settings.check_budget_status(conn_key, 0, usage)
 
-        # Publish budget events
-        if status.get('exceeded') and not getattr(self, '_budget_exceeded_notified', False):
+        # Publish budget events (once per connection)
+        if status.get('exceeded') and conn_key not in self._budget_exceeded_notified:
             self.event_bus.publish(EventType.BUDGET_EXCEEDED, {
                 'connection': conn_key,
                 'usage': usage,
                 'limit': budget.limit_bytes,
             })
-            self._budget_exceeded_notified = True
-        elif status.get('warning') and not getattr(self, '_budget_warning_notified', False):
+            self._budget_exceeded_notified.add(conn_key)
+        elif status.get('warning') and conn_key not in self._budget_warning_notified:
             self.event_bus.publish(EventType.BUDGET_WARNING, {
                 'connection': conn_key,
                 'percent': status['percent_used'],
             })
-            self._budget_warning_notified = True
+            self._budget_warning_notified.add(conn_key)
+
+        # Reset notification flags when under warning threshold
+        # (allows re-notification if usage drops and rises again)
+        if not status.get('warning') and not status.get('exceeded'):
+            self._budget_warning_notified.discard(conn_key)
+            self._budget_exceeded_notified.discard(conn_key)
 
         return status
 
@@ -412,6 +430,59 @@ class AppController:
         """Set title display mode."""
         self.deps.settings.set_title_display(mode)
         self.event_bus.publish(EventType.SETTINGS_CHANGED, {'title_display': mode})
+
+    def _check_bandwidth_thresholds(self) -> None:
+        """Check bandwidth thresholds and publish events if exceeded."""
+        try:
+            # Get bandwidth alert settings
+            alert_settings = self.deps.settings.get_bandwidth_alert_settings()
+            if not alert_settings.enabled:
+                return
+
+            # Get thresholds
+            thresholds = self.deps.settings.get_bandwidth_thresholds()
+            if not thresholds:
+                return
+
+            # Get current process traffic
+            top_processes = self.deps.traffic_monitor.get_top_processes(limit=20)
+            
+            # Check thresholds
+            alerts = self.deps.bandwidth_monitor.check_thresholds(
+                top_processes,
+                thresholds,
+                window_seconds=alert_settings.window_seconds
+            )
+
+            # Publish events for each alert
+            for alert in alerts:
+                self.event_bus.publish(EventType.BANDWIDTH_THRESHOLD_EXCEEDED, {
+                    'app_name': alert.app_name,
+                    'current_mbps': alert.current_mbps,
+                    'threshold_mbps': alert.threshold_mbps,
+                })
+        except Exception as e:
+            logger.error(f"Error checking bandwidth thresholds: {e}", exc_info=True)
+
+    def _check_dns_performance(self, current_time: float) -> None:
+        """Check DNS performance and publish events if slow."""
+        try:
+            latency = self.deps.dns_monitor.check_dns_performance()
+            if latency is not None:
+                # Publish DNS update event
+                self.event_bus.publish(EventType.DNS_UPDATE, {
+                    'latency_ms': latency,
+                    'avg_ms': self.deps.dns_monitor.get_average_dns_latency(),
+                })
+                
+                # Check if DNS is slow
+                if self.deps.dns_monitor.is_dns_slow():
+                    self.event_bus.publish(EventType.DNS_SLOW, {
+                        'latency_ms': latency,
+                        'threshold_ms': NETWORK.DNS_SLOW_THRESHOLD_MS,
+                    })
+        except Exception as e:
+            logger.error(f"Error checking DNS performance: {e}", exc_info=True)
 
     def get_launch_status(self) -> str:
         """Get launch at login status text."""

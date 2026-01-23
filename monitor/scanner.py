@@ -24,7 +24,10 @@ from config.subprocess_cache import get_subprocess_cache
 logger = get_logger(__name__)
 
 
-class DeviceType:
+from enum import Enum
+
+
+class DeviceType(str, Enum):
     """Device type classifications."""
     UNKNOWN = "unknown"
     DESKTOP = "desktop"
@@ -40,22 +43,28 @@ class DeviceType:
     GAMING = "gaming"
     WATCH = "watch"
 
-    # Icons for each type
-    ICONS = {
-        UNKNOWN: "❓",
-        DESKTOP: "🖥️",
-        LAPTOP: "💻",
-        PHONE: "📱",
-        TABLET: "📱",
-        TV: "📺",
-        SPEAKER: "🔊",
-        IOT: "🔌",
-        ROUTER: "📡",
-        PRINTER: "🖨️",
-        CAMERA: "📷",
-        GAMING: "🎮",
-        WATCH: "⌚",
-    }
+    @property
+    def icon(self) -> str:
+        """Get icon for this device type."""
+        return DEVICE_TYPE_ICONS.get(self, "❓")
+
+
+# Icons for each device type (defined outside enum to avoid becoming enum members)
+DEVICE_TYPE_ICONS = {
+    DeviceType.UNKNOWN: "❓",
+    DeviceType.DESKTOP: "🖥️",
+    DeviceType.LAPTOP: "💻",
+    DeviceType.PHONE: "📱",
+    DeviceType.TABLET: "📱",
+    DeviceType.TV: "📺",
+    DeviceType.SPEAKER: "🔊",
+    DeviceType.IOT: "🔌",
+    DeviceType.ROUTER: "📡",
+    DeviceType.PRINTER: "🖨️",
+    DeviceType.CAMERA: "📷",
+    DeviceType.GAMING: "🎮",
+    DeviceType.WATCH: "⌚",
+}
 
 
 @dataclass
@@ -65,7 +74,7 @@ class NetworkDevice:
     mac_address: str
     hostname: Optional[str] = None
     vendor: Optional[str] = None
-    device_type: str = DeviceType.UNKNOWN
+    device_type: DeviceType = DeviceType.UNKNOWN
     os_hint: Optional[str] = None
     model_hint: Optional[str] = None
     custom_name: Optional[str] = None
@@ -86,7 +95,7 @@ class NetworkDevice:
     @property
     def type_icon(self) -> str:
         """Get icon for device type."""
-        return DeviceType.ICONS.get(self.device_type, "❓")
+        return self.device_type.icon
 
     @property
     def display_name(self) -> str:
@@ -437,12 +446,12 @@ class ToolChecker:
 
 def infer_device_type(vendor: Optional[str], hostname: Optional[str],
                       services: List[str] = None, mdns_name: Optional[str] = None
-                      ) -> Tuple[str, Optional[str], Optional[str]]:
+                      ) -> Tuple[DeviceType, Optional[str], Optional[str]]:
     """Infer device type, OS, and model from available information.
     
     Returns: (device_type, os_hint, model_hint)
     """
-    device_type = DeviceType.UNKNOWN
+    device_type: DeviceType = DeviceType.UNKNOWN
     os_hint = None
     model_hint = None
 
@@ -500,7 +509,7 @@ class NetworkScanner:
     5. Custom names - User-assigned, persisted
     """
 
-    def __init__(self):
+    def __init__(self, event_bus=None):
         self._devices: Dict[str, NetworkDevice] = {}
         self._lock = threading.Lock()
         self._last_scan: float = 0
@@ -512,6 +521,8 @@ class NetworkScanner:
         self._oui_db = OUIDatabase()
         self._mdns_names: Dict[str, str] = {}
         self._subprocess_cache = get_subprocess_cache()
+        self._event_bus = event_bus  # Optional event bus for publishing events
+        self._previously_online_devices: Set[str] = set()  # Track devices that were online
 
         # Lazy hostname resolution
         self._pending_hostname_resolution: Set[str] = set()  # MACs pending resolution
@@ -873,13 +884,39 @@ class NetworkScanner:
                         is_online=True
                     )
                     self._devices[mac] = device
+                    
+                    # Publish event for newly discovered device
+                    if self._event_bus:
+                        from app.events import EventType
+                        self._event_bus.publish(EventType.DEVICE_NEWLY_ONLINE, {
+                            'mac': mac,
+                            'ip': ip,
+                            'name': device.display_name,
+                            'vendor': vendor,
+                        })
 
                 discovered.append(self._devices[mac])
+                
+                # Track newly online devices (was offline, now online)
+                if mac not in self._previously_online_devices and mac in self._devices:
+                    if self._devices[mac].is_online:
+                        # Device just came online
+                        if self._event_bus:
+                            from app.events import EventType
+                            self._event_bus.publish(EventType.DEVICE_NEWLY_ONLINE, {
+                                'mac': mac,
+                                'ip': self._devices[mac].ip_address,
+                                'name': self._devices[mac].display_name,
+                            })
+                        self._previously_online_devices.add(mac)
 
             # Mark unseen devices as offline
             for mac, device in self._devices.items():
                 if mac not in seen_macs:
+                    was_online = device.is_online
                     device.is_online = False
+                    if was_online and mac in self._previously_online_devices:
+                        self._previously_online_devices.discard(mac)
 
         # Only run expensive discovery when new devices are found (or forced)
         if not quick and (new_devices_found or force):

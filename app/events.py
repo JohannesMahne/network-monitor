@@ -44,6 +44,7 @@ class EventType(Enum):
     DEVICE_OFFLINE = auto()
     DEVICE_RENAMED = auto()
     DEVICES_SCANNED = auto()
+    DEVICE_NEWLY_ONLINE = auto()  # New device just came online
 
     # Budget events
     BUDGET_WARNING = auto()
@@ -54,6 +55,17 @@ class EventType(Enum):
     ISSUE_DETECTED = auto()
     HIGH_LATENCY = auto()
     SPEED_DROP = auto()
+    QUALITY_DEGRADED = auto()  # Network quality dropped significantly
+    
+    # Bandwidth events
+    BANDWIDTH_THRESHOLD_EXCEEDED = auto()
+    
+    # VPN events
+    VPN_DISCONNECTED = auto()  # VPN unexpectedly disconnected
+    
+    # DNS events
+    DNS_SLOW = auto()  # DNS resolution is slow
+    DNS_UPDATE = auto()  # DNS latency updated
 
     # App lifecycle events
     APP_STARTING = auto()

@@ -35,6 +35,10 @@ class AppDependencies:
     issue_detector: 'IssueDetector'
     network_scanner: 'NetworkScanner'
     traffic_monitor: 'TrafficMonitor'
+    bandwidth_monitor: 'BandwidthMonitor'
+    dns_monitor: 'DNSMonitor'
+    geolocation_service: 'GeolocationService'
+    connection_tracker: 'ConnectionTracker'
 
     # Storage components
     store: 'SQLiteStore'
@@ -94,10 +98,18 @@ def create_dependencies(
 
     # Create monitoring components
     network_stats = NetworkStats()
-    connection_detector = ConnectionDetector()
-    issue_detector = IssueDetector()
-    network_scanner = NetworkScanner()
+    connection_detector = ConnectionDetector(event_bus=event_bus)  # Pass event bus for VPN notifications
+    issue_detector = IssueDetector(event_bus=event_bus)  # Pass event bus for quality notifications
+    network_scanner = NetworkScanner(event_bus=event_bus)  # Pass event bus for device notifications
     traffic_monitor = TrafficMonitor()
+    from monitor.bandwidth_monitor import BandwidthMonitor
+    from monitor.dns_monitor import DNSMonitor
+    from monitor.geolocation import GeolocationService
+    from monitor.connection_tracker import ConnectionTracker
+    bandwidth_monitor = BandwidthMonitor()
+    dns_monitor = DNSMonitor()
+    geolocation_service = GeolocationService(data_dir=data_dir)
+    connection_tracker = ConnectionTracker(geolocation_service=geolocation_service)
 
     # Create service components
     launch_manager = get_launch_agent_manager()
@@ -112,6 +124,10 @@ def create_dependencies(
         issue_detector=issue_detector,
         network_scanner=network_scanner,
         traffic_monitor=traffic_monitor,
+        bandwidth_monitor=bandwidth_monitor,
+        dns_monitor=dns_monitor,
+        geolocation_service=geolocation_service,
+        connection_tracker=connection_tracker,
         store=store,
         settings=settings,
         launch_manager=launch_manager,
@@ -145,12 +161,21 @@ def create_mock_dependencies() -> AppDependencies:
 
     logger.debug("Creating mock dependencies for testing")
 
+    from monitor.bandwidth_monitor import BandwidthMonitor
+    from monitor.dns_monitor import DNSMonitor
+    from monitor.geolocation import GeolocationService
+    from monitor.connection_tracker import ConnectionTracker
+    
     return AppDependencies(
         network_stats=MockNetworkStats(),
         connection_detector=MockConnectionDetector(),
         issue_detector=MockIssueDetector(),
         network_scanner=MockNetworkScanner(),
         traffic_monitor=MockTrafficMonitor(),
+        bandwidth_monitor=BandwidthMonitor(),  # Real implementation is lightweight
+        dns_monitor=DNSMonitor(),  # Real implementation is lightweight
+        geolocation_service=GeolocationService(),  # Real implementation
+        connection_tracker=ConnectionTracker(),  # Real implementation
         store=MockJsonStore(),
         settings=MockSettingsManager(),
         launch_manager=MockLaunchAgentManager(),

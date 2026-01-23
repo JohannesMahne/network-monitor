@@ -57,7 +57,7 @@ class IssueDetector:
     SPEED_DROP_THRESHOLD = THRESHOLDS.SPEED_DROP_RATIO
     PING_HOST = NETWORK.DEFAULT_PING_HOST
 
-    def __init__(self, max_issues: int = None):
+    def __init__(self, max_issues: int = None, event_bus=None):
         self._issues: List[NetworkIssue] = []
         self._max_issues = max_issues or THRESHOLDS.MAX_ISSUES_STORED
         self._was_connected = True
@@ -67,6 +67,7 @@ class IssueDetector:
         self._average_speed: float = 0
         self._last_quality_score: Optional[int] = None
         self._quality_drop_cooldown: float = 0  # Prevent spamming
+        self._event_bus = event_bus  # Optional event bus for publishing events
         logger.debug("IssueDetector initialized")
 
     def check_connectivity(self, is_connected: bool) -> Optional[NetworkIssue]:
@@ -202,6 +203,17 @@ class IssueDetector:
                 )
                 self._add_issue(issue)
                 self._quality_drop_cooldown = current_time
+                
+                # Publish event for quality degradation
+                if self._event_bus:
+                    from app.events import EventType
+                    self._event_bus.publish(EventType.QUALITY_DEGRADED, {
+                        'previous_score': self._last_quality_score,
+                        'current_score': current_score,
+                        'drop_amount': drop,
+                        'latency_ms': latency,
+                        'jitter_ms': jitter,
+                    })
 
         self._last_quality_score = current_score
         return issue

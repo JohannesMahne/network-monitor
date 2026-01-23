@@ -155,6 +155,10 @@ class NetworkConfig:
     ARP_SCAN_TIMEOUT: float = 5.0
     HOSTNAME_RESOLVE_TIMEOUT: float = 2.0
     MDNS_BROWSE_TIMEOUT: float = 0.5
+    
+    # DNS monitoring
+    DNS_CHECK_INTERVAL: float = 30.0  # Check DNS every 30 seconds
+    DNS_SLOW_THRESHOLD_MS: float = 200.0  # Alert if DNS > 200ms
 
     # Common mDNS services to discover
     MDNS_SERVICES: Tuple[str, ...] = (

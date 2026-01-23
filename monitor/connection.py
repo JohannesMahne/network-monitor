@@ -22,6 +22,7 @@ class ConnectionInfo:
     ip_address: Optional[str] = None
     vpn_active: bool = False
     vpn_name: Optional[str] = None
+    wifi_signal_strength: Optional[int] = None  # RSSI in dBm for WiFi connections
 
 
 class ConnectionDetector:
@@ -30,12 +31,14 @@ class ConnectionDetector:
     # Airport command path (removed in newer macOS versions)
     AIRPORT_PATH = '/System/Library/PrivateFrameworks/Apple80211.framework/Versions/Current/Resources/airport'
 
-    def __init__(self):
+    def __init__(self, event_bus=None):
         self._last_connection: Optional[ConnectionInfo] = None
         self._subprocess_cache = get_subprocess_cache()
         self._wifi_interface = self._find_wifi_interface()
         # Check once at startup if airport command exists
         self._has_airport = Path(self.AIRPORT_PATH).exists()
+        self._event_bus = event_bus  # Optional event bus for publishing events
+        self._last_vpn_status: bool = False  # Track previous VPN status
         logger.debug(f"ConnectionDetector initialized, WiFi interface: {self._wifi_interface}, airport={self._has_airport}")
 
     def _find_wifi_interface(self) -> str:
@@ -131,6 +134,49 @@ class ConnectionDetector:
 
         return None
 
+    def _get_wifi_signal_strength(self) -> Optional[int]:
+        """Get WiFi signal strength (RSSI) in dBm.
+        
+        Returns:
+            Signal strength in dBm (typically -30 to -100), or None if unavailable.
+        """
+        # Method 1: Try CoreWLAN framework (most reliable)
+        try:
+            import objc
+            from Foundation import NSBundle
+
+            CoreWLAN = NSBundle.bundleWithPath_('/System/Library/Frameworks/CoreWLAN.framework')
+            if CoreWLAN and CoreWLAN.load():
+                CWWiFiClient = objc.lookUpClass('CWWiFiClient')
+                client = CWWiFiClient.sharedWiFiClient()
+                interface = client.interface()
+
+                if interface:
+                    rssi = interface.rssiValue()
+                    if rssi is not None:
+                        return int(rssi)
+        except Exception:
+            pass  # nosec B110 - Fallback chain, continue to next method
+
+        # Method 2: Try airport command (if available)
+        if self._has_airport:
+            try:
+                result = self._subprocess_cache.run(
+                    [self.AIRPORT_PATH, '-I'],
+                    ttl=2.0,
+                    timeout=INTERVALS.SUBPROCESS_TIMEOUT_SECONDS,
+                    check_allowed=False  # Special path, not in allowlist
+                )
+                if result.returncode == 0:
+                    # Look for "agrCtlRSSI: -XX" in output
+                    match = re.search(r'agrCtlRSSI:\s*(-?\d+)', result.stdout)
+                    if match:
+                        return int(match.group(1))
+            except Exception:
+                pass  # nosec B110 - Fallback chain, return None
+
+        return None
+
     def _get_active_interfaces(self) -> List[str]:
         """Get list of active network interfaces with IP addresses."""
         active = []
@@ -199,12 +245,15 @@ class ConnectionDetector:
             if ssid:
                 # Clean up display name for private networks
                 display_name = ssid if ssid != "[Private Network]" else "WiFi (Private - enable Location)"
+                # Get WiFi signal strength
+                signal_strength = self._get_wifi_signal_strength()
                 return ConnectionInfo(
                     connection_type="WiFi",
                     name=display_name,
                     interface=self._wifi_interface,
                     is_connected=True,
-                    ip_address=self._get_ip_address(self._wifi_interface)
+                    ip_address=self._get_ip_address(self._wifi_interface),
+                    wifi_signal_strength=signal_strength
                 )
 
         # Check each active interface and determine its type
@@ -213,12 +262,14 @@ class ConnectionDetector:
 
             # WiFi interface but no SSID (might be sharing, bridge, etc.)
             if iface == self._wifi_interface:
+                signal_strength = self._get_wifi_signal_strength()
                 return ConnectionInfo(
                     connection_type="WiFi",
                     name="WiFi (No SSID)",
                     interface=iface,
                     is_connected=True,
-                    ip_address=self._get_ip_address(iface)
+                    ip_address=self._get_ip_address(iface),
+                    wifi_signal_strength=signal_strength
                 )
 
             # Ethernet-type connections
@@ -308,19 +359,36 @@ class ConnectionDetector:
         # Method 1: Check for VPN-related network interfaces
         vpn_interface = self._check_vpn_interfaces()
         if vpn_interface:
-            return True, vpn_interface
-
-        # Method 2: Check for running VPN processes
-        vpn_process = self._check_vpn_processes()
-        if vpn_process:
-            return True, vpn_process
-
-        # Method 3: Check for VPN configuration in network services
-        vpn_service = self._check_vpn_services()
-        if vpn_service:
-            return True, vpn_service
-
-        return False, None
+            current_vpn = True
+            vpn_name = vpn_interface
+        else:
+            # Method 2: Check for running VPN processes
+            vpn_process = self._check_vpn_processes()
+            if vpn_process:
+                current_vpn = True
+                vpn_name = vpn_process
+            else:
+                # Method 3: Check for VPN configuration in network services
+                vpn_service = self._check_vpn_services()
+                if vpn_service:
+                    current_vpn = True
+                    vpn_name = vpn_service
+                else:
+                    current_vpn = False
+                    vpn_name = None
+        
+        # Detect VPN disconnect (was connected, now disconnected)
+        if self._last_vpn_status and not current_vpn and self._event_bus:
+            from app.events import EventType
+            self._event_bus.publish(EventType.VPN_DISCONNECTED, {
+                'previous_vpn_name': getattr(self, '_last_vpn_name', None),
+            })
+        
+        self._last_vpn_status = current_vpn
+        if current_vpn:
+            self._last_vpn_name = vpn_name
+        
+        return current_vpn, vpn_name
 
     def _check_vpn_interfaces(self) -> Optional[str]:
         """Check for active VPN network interfaces."""

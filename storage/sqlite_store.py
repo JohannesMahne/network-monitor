@@ -747,6 +747,16 @@ class SQLiteStore:
         except sqlite3.Error as e:
             logger.error(f"Flush failed: {e}")
 
+    def close(self) -> None:
+        """Close the database connection.
+        
+        For SQLite, this is equivalent to flush() since connections
+        are managed via context managers. Provided for compatibility
+        with test fixtures and other code that expects a close() method.
+        """
+        self.flush()
+        logger.debug("Database closed")
+
     # === Backup/Restore Methods ===
 
     def backup(self, backup_path: Optional[Path] = None) -> Path:
