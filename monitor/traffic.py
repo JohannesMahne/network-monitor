@@ -242,58 +242,44 @@ class TrafficMonitor:
             )
 
             if proc.returncode == 0:
-                # Parse nettop output
-                # Format: process_name      bytes_in    bytes_out
+                # Parse nettop output (CSV on macOS: "process.pid,bytes_in,bytes_out,"
+                # or whitespace-separated fallback)
                 lines = proc.stdout.strip().split("\n")
 
                 for line in lines:
-                    # Skip header and empty lines
-                    if not line.strip() or "bytes_in" in line.lower() or line.startswith("time"):
+                    stripped = line.strip()
+                    if not stripped or "bytes_in" in stripped.lower() or stripped.startswith("time"):
                         continue
 
-                    # Split by whitespace
-                    parts = line.split()
+                    if "," in stripped:
+                        parts = [p.strip() for p in stripped.split(",") if p.strip() != ""]
+                    else:
+                        parts = stripped.split()
+
                     if len(parts) >= 3:
                         try:
                             # First part is process name (may include .pid suffix)
                             proc_info = parts[0].strip()
 
                             # Skip time-like entries
-                            if ":" in proc_info and proc_info.count(":") >= 1:
-                                # Might be timestamp like "17:40:29"
-                                if all(c.isdigit() or c == ":" for c in proc_info):
-                                    continue
+                            if ":" in proc_info and all(c.isdigit() or c == ":" for c in proc_info):
+                                continue
 
                             # Extract process name (remove .pid suffix if present)
                             if "." in proc_info:
-                                # Check if last part is a number (PID)
                                 name_parts = proc_info.rsplit(".", 1)
-                                if name_parts[-1].isdigit():
-                                    proc_name = name_parts[0]
-                                else:
-                                    proc_name = proc_info
+                                proc_name = (
+                                    name_parts[0] if name_parts[-1].isdigit() else proc_info
+                                )
                             else:
                                 proc_name = proc_info
 
-                            # Skip system/empty names
                             if not proc_name or proc_name in ("time", "interface", "-"):
                                 continue
 
-                            # Last two numeric values are usually bytes_in and bytes_out
-                            bytes_in = 0
-                            bytes_out = 0
-
-                            numeric_values = []
-                            for part in parts[1:]:
-                                part = part.strip()
-                                if part.isdigit():
-                                    numeric_values.append(int(part))
-
-                            if len(numeric_values) >= 2:
-                                bytes_in = numeric_values[0]
-                                bytes_out = numeric_values[1]
-                            elif len(numeric_values) == 1:
-                                bytes_in = numeric_values[0]
+                            numeric_values = [int(p) for p in parts[1:] if p.isdigit()]
+                            bytes_in = numeric_values[0] if len(numeric_values) >= 1 else 0
+                            bytes_out = numeric_values[1] if len(numeric_values) >= 2 else 0
 
                             if proc_name and (bytes_in > 0 or bytes_out > 0):
                                 if proc_name in result:
@@ -345,31 +331,39 @@ class TrafficMonitor:
         return process_connections
 
     def get_traffic_by_process(self) -> List[ProcessTraffic]:
-        """Get current traffic breakdown by process."""
-        traffic_list = []
-        seen_names = set()
+        """Get current traffic breakdown by process (bytes from nettop + connections from lsof/psutil)."""
+        traffic_by_name: Dict[str, ProcessTraffic] = {}
 
         # Primary method: Use psutil for fast connection data
         connections_by_pid = self._get_active_connections()
-
         for pid, conns in connections_by_pid.items():
             name = self._get_process_name(pid)
-            if name and name not in seen_names:
-                seen_names.add(name)
-                traffic = ProcessTraffic(pid=pid, name=name, connections=len(conns))
-                traffic_list.append(traffic)
+            if name and name not in traffic_by_name:
+                traffic_by_name[name] = ProcessTraffic(pid=pid, name=name, connections=len(conns))
 
-        # Add any additional from connection scan
+        # Add connection counts from lsof (works without root on macOS)
         additional_counts = self._run_netstat_processes()
         for proc_name, conn_count in additional_counts.items():
-            if proc_name not in seen_names:
-                seen_names.add(proc_name)
-                traffic = ProcessTraffic(pid=0, name=proc_name, connections=conn_count)
-                traffic_list.append(traffic)
+            if proc_name not in traffic_by_name:
+                traffic_by_name[proc_name] = ProcessTraffic(
+                    pid=0, name=proc_name, connections=conn_count
+                )
+            elif traffic_by_name[proc_name].connections == 0:
+                traffic_by_name[proc_name].connections = conn_count
 
-        # Sort by connections (most active first)
-        traffic_list.sort(key=lambda t: t.connections, reverse=True)
+        # Merge per-process byte counters from nettop (CSV on macOS)
+        nettop_bytes = self._run_nettop()
+        for proc_name, (bytes_in, bytes_out) in nettop_bytes.items():
+            if proc_name in traffic_by_name:
+                traffic_by_name[proc_name].bytes_in += bytes_in
+                traffic_by_name[proc_name].bytes_out += bytes_out
+            else:
+                traffic_by_name[proc_name] = ProcessTraffic(
+                    pid=0, name=proc_name, bytes_in=bytes_in, bytes_out=bytes_out, connections=0
+                )
 
+        traffic_list = list(traffic_by_name.values())
+        traffic_list.sort(key=lambda t: (t.total_bytes, t.connections), reverse=True)
         return traffic_list
 
     def get_traffic_summary(self) -> List[Tuple[str, int, int, int]]:

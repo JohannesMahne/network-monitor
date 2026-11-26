@@ -202,15 +202,32 @@ class TestConnectionTracker:
 
     @patch("psutil.net_connections")
     def test_get_external_connections_handles_access_denied(self, mock_net_connections):
-        """Test handling of psutil.AccessDenied."""
+        """Test handling of psutil.AccessDenied when lsof fallback also returns empty."""
         import psutil
 
         tracker = ConnectionTracker()
         mock_net_connections.side_effect = psutil.AccessDenied(pid=1234)
 
-        result = tracker.get_external_connections()
+        with patch.object(tracker, "_get_raw_connections_via_lsof", return_value=[]):
+            result = tracker.get_external_connections()
 
         assert result == {}
+
+    @patch("psutil.net_connections")
+    def test_get_external_connections_lsof_fallback(self, mock_net_connections):
+        """Test lsof fallback when psutil.net_connections raises AccessDenied."""
+        import psutil
+
+        tracker = ConnectionTracker()
+        mock_net_connections.side_effect = psutil.AccessDenied(pid=1234)
+
+        with patch.object(
+            tracker, "_get_raw_connections_via_lsof", return_value=[("Safari", "8.8.8.8", 443, 54321)]
+        ):
+            result = tracker.get_external_connections()
+
+        assert "Safari" in result
+        assert result["Safari"][0].remote_ip == "8.8.8.8"
 
     @patch("psutil.Process")
     @patch("psutil.net_connections")

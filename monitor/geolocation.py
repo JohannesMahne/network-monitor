@@ -23,8 +23,8 @@ class GeolocationService:
     to minimize API calls.
     """
 
-    # Free API endpoint (45 requests/minute limit)
-    API_URL = "http://ip-api.com/json/{ip}?fields=status,country,countryCode"
+    # Free HTTPS geolocation API (no API key required)
+    API_URL = "https://ipwho.is/{ip}"
 
     # Cache file location
     CACHE_FILE = "geolocation_cache.json"
@@ -132,8 +132,9 @@ class GeolocationService:
             with urlopen(request, timeout=3.0) as response:
                 data = json.loads(response.read().decode())
 
-                if data.get("status") == "success":
-                    country_code = data.get("countryCode")
+                is_ok = data.get("status") == "success" or data.get("success") is True
+                if is_ok:
+                    country_code = data.get("countryCode") or data.get("country_code")
                     if country_code:
                         # Cache the result
                         self._cache[ip] = {

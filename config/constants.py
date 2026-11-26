@@ -232,6 +232,7 @@ ALLOWED_SUBPROCESS_COMMANDS = frozenset(
         "dns-sd",
         "ipconfig",
         "launchctl",
+        "route",
         "which",
         "open",
     }

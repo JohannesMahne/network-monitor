@@ -209,9 +209,6 @@ class NetworkMonitorApp(rumps.App):
         self._startup_timer = rumps.Timer(self._delayed_timer_start, 0.5)
         self._startup_timer.start()
 
-        # Trigger initial device scan immediately
-        threading.Thread(target=self._initial_device_scan, daemon=True).start()
-
     def _register_shortcuts(self):
         """Register global keyboard shortcuts."""
         try:
@@ -525,11 +522,13 @@ class NetworkMonitorApp(rumps.App):
         )
 
     def _on_dns_update(self, event):
-        """Handle DNS update event."""
+        """Handle DNS update event (append fresh DNS sample to sparkline history)."""
         data = event.data
         latency = data.get("latency_ms")
         if latency is not None:
             self._current_dns_latency = latency
+            with self._sparkline_lock:
+                self._dns_history.append(latency)
 
     def _on_dns_slow(self, event):
         """Handle DNS slow event."""
@@ -760,15 +759,12 @@ class NetworkMonitorApp(rumps.App):
         stats = self.network_stats.get_current_stats()
 
         if stats:
-            # Record history for sparklines (thread-safe)
+            # Record speed history for sparklines (thread-safe)
+            # Latency and DNS histories are appended when fresh measurements arrive
             with self._sparkline_lock:
                 self._upload_history.append(stats.upload_speed)
                 self._download_history.append(stats.download_speed)
                 self._total_history.append(stats.upload_speed + stats.download_speed)
-                if self._current_latency is not None:
-                    self._latency_history.append(self._current_latency)
-                if self._current_dns_latency is not None:
-                    self._dns_history.append(self._current_dns_latency)
 
             # Record activity for adaptive intervals
             total_activity = stats.upload_speed + stats.download_speed
@@ -1254,6 +1250,8 @@ class NetworkMonitorApp(rumps.App):
                 # Keep last N samples for average
                 if len(self._latency_samples) > THRESHOLDS.LATENCY_SAMPLE_COUNT:
                     self._latency_samples.pop(0)
+                with self._sparkline_lock:
+                    self._latency_history.append(latency)
         except Exception as e:
             logger.error(f"Latency check error: {e}", exc_info=True)
 
@@ -1500,7 +1498,10 @@ class NetworkMonitorApp(rumps.App):
         """Update apps menu from background-cached data; only rebuild when changed."""
         try:
             top_processes = self._cached_top_apps
-            sig = tuple((name, conns) for name, _, _, conns in top_processes)
+            sig = tuple(
+                (name, bytes_in // 1024, bytes_out // 1024, conns)
+                for name, bytes_in, bytes_out, conns in top_processes
+            )
             if self._submenu_signatures.get("apps") == sig:
                 return
             self._submenu_signatures["apps"] = sig
@@ -1515,11 +1516,18 @@ class NetworkMonitorApp(rumps.App):
 
             # Count total connections across all apps
             total_connections = sum(conns for _, _, _, conns in top_processes)
-            self.menu_apps.title = f"Connections ({total_connections})"
+            self.menu_apps.title = (
+                f"Connections ({total_connections})" if total_connections > 0 else "Connections"
+            )
 
-            # Add all processes in a flat list
+            # Add all processes in a flat list with bandwidth and/or connection counts
             for name, bytes_in, bytes_out, conns in top_processes:
-                if conns > 0:
+                has_bytes = (bytes_in + bytes_out) > 0
+                if has_bytes and conns > 0:
+                    title = f"{name}: ↓{format_bytes(bytes_in)} ↑{format_bytes(bytes_out)} ({conns})"
+                elif has_bytes:
+                    title = f"{name}: ↓{format_bytes(bytes_in)} ↑{format_bytes(bytes_out)}"
+                elif conns > 0:
                     title = f"{name}: {conns} conn{'s' if conns > 1 else ''}"
                 else:
                     title = f"{name}: idle"

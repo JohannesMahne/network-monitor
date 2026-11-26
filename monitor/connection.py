@@ -186,6 +186,37 @@ class ConnectionDetector:
 
         return None
 
+    def _get_gateway_mac(self) -> Optional[str]:
+        """Get the default gateway's MAC address (used to distinguish redacted WiFi networks)."""
+        try:
+            route_res = self._subprocess_cache.run(
+                ["route", "-n", "get", "default"],
+                ttl=30.0,
+                timeout=INTERVALS.SUBPROCESS_TIMEOUT_SECONDS,
+            )
+            if route_res.returncode != 0:
+                return None
+            gw_match = re.search(r"gateway:\s*([0-9.]+)", route_res.stdout)
+            if not gw_match:
+                return None
+            gw_ip = gw_match.group(1)
+
+            arp_res = self._subprocess_cache.run(
+                ["arp", "-n", gw_ip],
+                ttl=30.0,
+                timeout=INTERVALS.SUBPROCESS_TIMEOUT_SECONDS,
+            )
+            if arp_res.returncode != 0:
+                return None
+            mac_match = re.search(r"at\s+([0-9a-fA-F:]+)", arp_res.stdout)
+            if mac_match:
+                parts = [p.zfill(2).upper() for p in mac_match.group(1).split(":")]
+                if len(parts) == 6:
+                    return ":".join(parts)
+        except Exception as e:
+            logger.debug(f"Gateway MAC lookup failed: {e}")
+        return None
+
     def _get_active_interfaces(self) -> List[str]:
         """Get list of active network interfaces with IP addresses."""
         active = []
@@ -249,10 +280,16 @@ class ConnectionDetector:
         if self._wifi_interface in active_interfaces:
             ssid = self._get_wifi_ssid()
             if ssid:
-                # Clean up display name for private networks
-                display_name = (
-                    ssid if ssid != "[Private Network]" else "WiFi (Private - enable Location)"
-                )
+                # Clean up display name for private networks (fingerprint by gateway MAC)
+                if ssid == "[Private Network]":
+                    gw_mac = self._get_gateway_mac()
+                    display_name = (
+                        f"WiFi (Private · {gw_mac[-8:]})"
+                        if gw_mac
+                        else "WiFi (Private - enable Location)"
+                    )
+                else:
+                    display_name = ssid
                 # Get WiFi signal strength
                 signal_strength = self._get_wifi_signal_strength()
                 return ConnectionInfo(

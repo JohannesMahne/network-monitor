@@ -235,11 +235,31 @@ class AppController:
             del self._last_stored_bytes[new_conn_key]
         logger.info(f"Connection changed to: {new_conn_key}")
 
+    def _persist_devices(self) -> None:
+        """Persist discovered devices to SQLite store."""
+        try:
+            for d in self.deps.network_scanner.get_all_devices():
+                if not d.mac_address:
+                    continue
+                self.deps.store.save_device(
+                    mac_address=d.mac_address,
+                    custom_name=d.custom_name,
+                    hostname=d.hostname,
+                    vendor=d.vendor,
+                    device_type=d.device_type.value if hasattr(d.device_type, "value") else str(d.device_type),
+                    model_hint=d.model_hint,
+                    os_hint=d.os_hint,
+                    last_ip=d.ip_address,
+                )
+        except Exception as e:
+            logger.debug(f"Could not persist devices to store: {e}")
+
     def _scan_devices(self) -> None:
         """Scan for network devices (runs in background thread)."""
         try:
             self.deps.network_scanner.scan()
             self.deps.network_scanner.resolve_missing_hostnames()
+            self._persist_devices()
 
             online, total = self.deps.network_scanner.get_device_count()
             self.event_bus.publish(
@@ -260,6 +280,7 @@ class AppController:
             # Quick scan first for immediate results
             self.deps.network_scanner.scan(force=True, quick=True)
             self._last_device_scan = time.time()
+            self._persist_devices()
 
             # Then do a full scan
             time.sleep(2)
@@ -268,6 +289,7 @@ class AppController:
             # Resolve hostnames
             time.sleep(1)
             self.deps.network_scanner.resolve_missing_hostnames()
+            self._persist_devices()
 
             logger.info("Initial device scan completed")
         except Exception as e:

@@ -48,7 +48,9 @@ class LaunchAgentManager:
             "KeepAlive": False,
             "StandardOutPath": str(data_dir / STORAGE.STDOUT_LOG),
             "StandardErrorPath": str(data_dir / STORAGE.STDERR_LOG),
-            "EnvironmentVariables": {"PATH": "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"},
+            "EnvironmentVariables": {
+                "PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+            },
         }
 
     def is_enabled(self) -> bool:
