@@ -93,6 +93,7 @@ def setup_logging(
     # Create or get root logger
     root_logger = logging.getLogger("netmon")
     root_logger.setLevel(logging.DEBUG if debug else logging.INFO)
+    root_logger.propagate = False
 
     # Clear existing handlers
     root_logger.handlers.clear()

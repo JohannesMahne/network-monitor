@@ -43,6 +43,11 @@ def _get_timer_callback_helper():
 
         from Foundation import NSObject
 
+        try:
+            import objc
+        except ImportError:
+            objc = None
+
         class _MenuAwareTimerHelper(NSObject):
             """Helper object to dispatch timer callbacks to main thread."""
 
@@ -52,7 +57,11 @@ def _get_timer_callback_helper():
             def doCallback_(self, _):
                 if self.callback_ref and self.timer_ref and self.timer_ref._running:
                     try:
-                        self.callback_ref(self.timer_ref)
+                        if objc is not None:
+                            with objc.autorelease_pool():
+                                self.callback_ref(self.timer_ref)
+                        else:
+                            self.callback_ref(self.timer_ref)
                     except Exception:
                         pass
 

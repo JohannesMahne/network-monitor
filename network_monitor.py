@@ -170,6 +170,24 @@ class NetworkMonitorApp(rumps.App):
             Path(tempfile.gettempdir()) / STORAGE.SPARKLINE_TEMP_DIR,
         ]
 
+        # Menu visibility & caching state (avoid rendering/rebuilding while menu is closed)
+        self._menu_open: bool = False
+        self._menu_delegate = None
+        self._last_icon_key: Optional[tuple] = None
+        self._gauge_icon_cache: dict = {}
+        self._last_sparkline_save: float = time.time()
+        self._last_dns_check: float = 0.0
+        self._last_bandwidth_check: float = 0.0
+        self._last_bg_heavy_refresh: float = 0.0
+        self._bg_heavy_lock = threading.Lock()
+        self._bg_heavy_running: bool = False
+        self._cached_top_apps: list = []
+        self._cached_locations: dict = {}
+        self._last_history_refresh: float = 0.0
+        self._last_saved_issue_count: int = 0
+        self._submenu_signatures: dict = {}
+        self._last_update_snapshot: Optional[tuple] = None
+
         logger.info("NetworkMonitorApp initializing...")
 
         # Register cleanup on exit
@@ -198,16 +216,11 @@ class NetworkMonitorApp(rumps.App):
         """Register global keyboard shortcuts."""
         try:
             shortcut = self.settings.get_keyboard_shortcut()
-
-            # Register menu toggle shortcut
             success = self._shortcut_manager.register_shortcut(
                 shortcut, lambda: self._toggle_menu_visibility()
             )
-
             if not success:
-                logger.warning(
-                    "Could not register keyboard shortcut - may need Accessibility permissions"
-                )
+                logger.debug("Keyboard shortcut not registered")
         except Exception as e:
             logger.debug(f"Shortcut registration failed: {e}")
 
@@ -545,6 +558,54 @@ class NetworkMonitorApp(rumps.App):
         self._sparkline_timer = None
         self._timers_started = False
 
+    def _attach_menu_delegate(self):
+        """Attach an NSMenuDelegate to track menu open/close state.
+
+        When the menu is closed, we skip rendering sparklines and rebuilding
+        submenus, reducing idle CPU/memory usage dramatically.
+        """
+        try:
+            from Foundation import NSObject
+
+            app_ref = self
+
+            class _MenuVisibilityDelegate(NSObject):
+                def menuWillOpen_(self, menu):
+                    app_ref._menu_open = True
+                    if app_ref._update_timer:
+                        app_ref._update_timer.interval = 1.5
+                    try:
+                        app_ref._refresh_open_menu()
+                    except Exception as e:
+                        logger.debug(f"Menu open refresh error: {e}")
+
+                def menuDidClose_(self, menu):
+                    app_ref._menu_open = False
+                    if app_ref._update_timer:
+                        app_ref._update_timer.interval = app_ref._current_update_interval
+
+            ns_menu = getattr(self._menu, "_menu", None)
+            if ns_menu is not None:
+                self._menu_delegate = _MenuVisibilityDelegate.alloc().init()
+                ns_menu.setDelegate_(self._menu_delegate)
+                logger.debug("Attached NSMenuDelegate for menu visibility tracking")
+        except Exception as e:
+            logger.debug(f"Could not attach menu delegate (falling back to always-update): {e}")
+            self._menu_open = True
+
+    def _refresh_open_menu(self):
+        """Immediately refresh sparklines and menu items when the dropdown opens."""
+        if self._last_update_snapshot:
+            conn, stats, avg_up, avg_down, peak_up, peak_down, conn_sent, conn_recv = (
+                self._last_update_snapshot
+            )
+            self._update_sparklines(stats)
+            self._update_menu(
+                conn, stats, avg_up, avg_down, peak_up, peak_down, conn_sent, conn_recv
+            )
+        # Trigger a fresh background poll for top apps & locations while menu is open
+        self._dispatch_background_checks(time.time(), force_heavy=True)
+
     def _delayed_timer_start(self, _):
         """Called by rumps.Timer after app.run() to start actual timers."""
         if self._timers_started:
@@ -557,15 +618,13 @@ class NetworkMonitorApp(rumps.App):
             self._startup_timer.stop()
             self._startup_timer = None
 
-        # Start the update timer with adaptive interval
-        # Use MenuAwareTimer so updates continue even when menu is open
+        # Attach menu visibility delegate so we only render UI when menu is open
+        self._attach_menu_delegate()
+
+        # Single unified menu-aware timer (no duplicate 1s sparkline timer)
         self._update_timer = MenuAwareTimer(self._timer_callback, self._current_update_interval)
         self._update_timer.start()
-
-        # Start a fast timer for sparkline updates (1 second) - keeps graphs smooth
-        self._sparkline_timer = MenuAwareTimer(self._sparkline_timer_callback, 1.0)
-        self._sparkline_timer.start()
-        logger.info("Started menu-aware timers (delayed after app.run)")
+        logger.info("Started unified menu-aware timer (delayed after app.run)")
 
     def _timer_callback(self, timer):
         """Timer callback (runs on main thread - thread-safe for UI)."""
@@ -573,36 +632,75 @@ class NetworkMonitorApp(rumps.App):
             return
         try:
             self._update()
-            # Adjust timer interval based on activity
-            self._adjust_update_interval()
+            # Adjust timer interval based on activity (when menu is closed)
+            if not self._menu_open:
+                self._adjust_update_interval()
         except Exception as e:
             logger.error(f"Monitor error: {e}", exc_info=True)
 
-    def _sparkline_timer_callback(self, timer):
-        """Fast timer callback for sparkline updates (1 second)."""
-        if not self._running:
-            return
-        try:
-            # Get current stats for sparkline update
-            stats = self.network_stats.get_current_stats()
-            if stats:
-                # Record history for sparklines (thread-safe)
-                with self._sparkline_lock:
-                    self._upload_history.append(stats.upload_speed)
-                    self._download_history.append(stats.download_speed)
-                    self._total_history.append(stats.upload_speed + stats.download_speed)
-                    if self._current_latency is not None:
-                        self._latency_history.append(self._current_latency)
-                # Update sparkline display
-                self._update_sparklines(stats)
+    def _dispatch_background_checks(self, current_time: float, force_heavy: bool = False):
+        """Run blocking checks (latency, DNS, VPN, bandwidth alerts, nettop, geoloc) off main thread."""
+        from config import NETWORK
 
-            # Periodically save sparkline history (every 60 seconds)
-            self._sparkline_save_counter = getattr(self, "_sparkline_save_counter", 0) + 1
-            if self._sparkline_save_counter >= 60:
-                self._sparkline_save_counter = 0
-                self._save_sparkline_history()
+        # Latency ping check (every LATENCY_CHECK_SECONDS)
+        if current_time - self._last_latency_check >= self._latency_check_interval:
+            self._last_latency_check = current_time
+            threading.Thread(target=self._check_latency_background, daemon=True).start()
+
+        # DNS performance check (every DNS_CHECK_INTERVAL)
+        if current_time - self._last_dns_check >= NETWORK.DNS_CHECK_INTERVAL:
+            self._last_dns_check = current_time
+            threading.Thread(
+                target=self._controller._check_dns_performance,
+                args=(current_time,),
+                daemon=True,
+            ).start()
+
+        # VPN check (every _vpn_check_interval)
+        if current_time - self._last_vpn_check >= self._vpn_check_interval:
+            self._last_vpn_check = current_time
+            threading.Thread(target=self._check_vpn_background, daemon=True).start()
+
+        # Bandwidth throttling check (every 10s)
+        if current_time - self._last_bandwidth_check >= 10.0:
+            self._last_bandwidth_check = current_time
+            threading.Thread(
+                target=self._controller._check_bandwidth_thresholds, daemon=True
+            ).start()
+
+        # Heavy menu-only checks (nettop top apps + external connection locations)
+        # Only run when menu is open or forced, at most every 5s, never overlapping
+        heavy_interval = 5.0 if self._menu_open else 60.0
+        if force_heavy or (self._menu_open and current_time - self._last_bg_heavy_refresh >= heavy_interval):
+            with self._bg_heavy_lock:
+                if not self._bg_heavy_running:
+                    self._bg_heavy_running = True
+                    self._last_bg_heavy_refresh = current_time
+                    threading.Thread(target=self._refresh_heavy_data_background, daemon=True).start()
+
+    def _check_vpn_background(self):
+        """Check VPN status off the main thread."""
+        try:
+            vpn_active, vpn_name = self.connection_detector.detect_vpn()
+            self._vpn_active = vpn_active
+            self._vpn_name = vpn_name if vpn_active else None
         except Exception as e:
-            logger.error(f"Sparkline update error: {e}", exc_info=True)
+            logger.debug(f"VPN check error: {e}")
+
+    def _refresh_heavy_data_background(self):
+        """Fetch top apps (nettop) and external connection locations off the main thread."""
+        try:
+            try:
+                self._cached_top_apps = self.traffic_monitor.get_top_processes(limit=15)
+            except Exception as e:
+                logger.debug(f"Background top apps error: {e}")
+            try:
+                self._cached_locations = self._deps.connection_tracker.get_countries_per_app()
+            except Exception as e:
+                logger.debug(f"Background locations error: {e}")
+        finally:
+            with self._bg_heavy_lock:
+                self._bg_heavy_running = False
 
     def _calculate_adaptive_interval(self) -> float:
         """Calculate the appropriate update interval based on recent activity.
@@ -676,14 +774,14 @@ class NetworkMonitorApp(rumps.App):
             total_activity = stats.upload_speed + stats.download_speed
             self._activity_samples.append(total_activity)
 
-            # Update menu bar title based on settings
+            # Update quality score (needed for menu bar title in quality mode)
+            self._update_quality_score(update_menu=self._menu_open)
+
+            # Update menu bar title based on settings (cached icon, minimal work)
             self._update_title(stats)
 
-            # Update sparkline graphs
-            self._update_sparklines(stats)
-
-            # Check for latency issues periodically
-            self.issue_detector.check_latency()
+            # Dispatch throttled background checks (latency, DNS, VPN, bandwidth alerts, nettop)
+            self._dispatch_background_checks(current_time)
 
             # Get averages and peaks
             avg_up, avg_down = self.network_stats.get_average_speeds()
@@ -693,6 +791,12 @@ class NetworkMonitorApp(rumps.App):
             total_speed = stats.download_speed + stats.upload_speed
             avg_total = avg_up + avg_down
             self.issue_detector.check_speed_drop(total_speed, avg_total)
+
+            # Persist newly detected issues to SQLite
+            current_issues = self.issue_detector.get_recent_issues(10)
+            if len(current_issues) != self._last_saved_issue_count:
+                self._last_saved_issue_count = len(current_issues)
+                self._save_issues_to_storage()
 
             # Calculate session totals for current connection
             session_sent, session_recv = self.network_stats.get_session_totals()
@@ -710,10 +814,29 @@ class NetworkMonitorApp(rumps.App):
                     self.store.update_stats(conn_key, delta_sent, delta_recv, peak_up, peak_down)
                     self._last_stored_bytes[conn_key] = (conn_sent, conn_recv)
 
-            # Update menu items (on main thread via rumps timer)
-            self._update_menu(
-                conn, stats, avg_up, avg_down, peak_up, peak_down, conn_sent, conn_recv
+            # Save snapshot for instant rendering when menu opens
+            self._last_update_snapshot = (
+                conn,
+                stats,
+                avg_up,
+                avg_down,
+                peak_up,
+                peak_down,
+                conn_sent,
+                conn_recv,
             )
+
+            # Only render sparklines & update dropdown menu items when menu is actually open
+            if self._menu_open:
+                self._update_sparklines(stats)
+                self._update_menu(
+                    conn, stats, avg_up, avg_down, peak_up, peak_down, conn_sent, conn_recv
+                )
+
+            # Periodically persist sparkline history (every 60 seconds)
+            if current_time - self._last_sparkline_save >= 60.0:
+                self._last_sparkline_save = current_time
+                self._save_sparkline_history()
 
     def _scan_devices(self):
         """Scan for network devices (runs in background thread)."""
@@ -835,12 +958,20 @@ class NetworkMonitorApp(rumps.App):
         else:
             color = "gray"
 
-        # Set the gauge icon
+        # Set the gauge icon only when (appearance_mode, color) changes (cached on disk)
         try:
-            icon_path = self._create_gauge_icon(color)
-            self.icon = icon_path
+            from app.sparkline_renderer import _get_appearance_mode
+
+            appearance_mode = _get_appearance_mode()
+            icon_key = (appearance_mode, color)
+            if icon_key != self._last_icon_key:
+                icon_path = self._gauge_icon_cache.get(icon_key)
+                if not icon_path or not Path(icon_path).exists():
+                    icon_path = self._create_gauge_icon(color)
+                    self._gauge_icon_cache[icon_key] = icon_path
+                self.icon = icon_path
+                self._last_icon_key = icon_key
         except Exception as e:
-            # Fallback to emoji if icon creation fails
             logger.debug(f"Icon creation failed, using fallback: {e}")
 
         # Format title based on display mode (text only, icon provides color)
@@ -934,8 +1065,19 @@ class NetworkMonitorApp(rumps.App):
         # Update DNS latency display
         self._update_dns_latency()
 
-        # Update network quality score
-        self._update_quality_score()
+        # Update network quality menu title (score is already computed in _update)
+        if self._quality_score is not None:
+            if self._quality_score >= 80:
+                indicator, label = "🟢", "Excellent"
+            elif self._quality_score >= 60:
+                indicator, label = "🟡", "Good"
+            elif self._quality_score >= 40:
+                indicator, label = "🟠", "Fair"
+            else:
+                indicator, label = "🔴", "Poor"
+            self.menu_quality.title = f"Quality: {indicator} {self._quality_score}% ({label})"
+        else:
+            self.menu_quality.title = "Quality: ⏳ measuring..."
 
         today_sent, today_recv = self.store.get_today_totals()
         today_total = today_sent + today_recv
@@ -959,37 +1101,48 @@ class NetworkMonitorApp(rumps.App):
         # Update events
         self._update_events()
 
-    def _set_menu_image(self, menu_item, image_path: str, title: str = None):
-        """Set an image on a menu item using AppKit with live refresh.
+    def _set_menu_image_bytes(self, menu_item, png_bytes: Optional[bytes], title: str = None):
+        """Set an in-memory PNG image on a menu item using NSData -> NSImage (zero disk I/O)."""
+        try:
+            from AppKit import NSImage
+            from Foundation import NSData
 
-        Args:
-            menu_item: The rumps MenuItem
-            image_path: Path to the image file
-            title: Optional new title (setting title helps force refresh)
-        """
+            if title is not None:
+                menu_item.title = title
+
+            ns_item = getattr(menu_item, "_menuitem", None)
+            if ns_item is None:
+                return
+
+            if title is not None:
+                ns_item.setTitle_(title)
+
+            if png_bytes:
+                ns_data = NSData.dataWithBytes_length_(png_bytes, len(png_bytes))
+                image = NSImage.alloc().initWithData_(ns_data)
+                if image:
+                    ns_item.setImage_(image)
+        except Exception as e:
+            logger.error(f"Failed to set in-memory menu image: {e}")
+
+    def _set_menu_image(self, menu_item, image_path: str, title: str = None):
+        """Set an image on a menu item from a file path."""
         try:
             import os
 
             from AppKit import NSImage
 
-            # Update title via rumps - this syncs the internal state
             if title is not None:
                 menu_item.title = title
 
-            # For images, we need the NSMenuItem object which is only available
-            # after the menu is built and the app is running
             ns_item = getattr(menu_item, "_menuitem", None)
             if ns_item is None:
-                # Menu not built yet, title update via rumps is enough
                 return
 
-            # Set title via AppKit as well to force visual update
             if title is not None:
                 ns_item.setTitle_(title)
 
-            # Try to set image if file exists
             if image_path and os.path.exists(image_path):
-                # Load image directly - use unique filenames to bypass cache
                 image = NSImage.alloc().initWithContentsOfFile_(image_path)
                 if image:
                     ns_item.setImage_(image)
@@ -998,20 +1151,12 @@ class NetworkMonitorApp(rumps.App):
             logger.error(f"Failed to set menu image: {e}")
 
     def _update_sparklines(self, stats):
-        """Update the sparkline graph display with matplotlib line graphs."""
-        # Get appearance-aware colors
+        """Update the sparkline graph display using in-memory PIL PNGs (zero disk writes)."""
         from app.sparkline_renderer import _get_appearance_colors, _get_appearance_mode
 
         appearance_mode = _get_appearance_mode()
         colors = _get_appearance_colors(appearance_mode)
 
-        # Colors for each metric - use appearance-aware colors
-        quality_color = colors["quality"]
-        up_color = colors["upload"]
-        down_color = colors["download"]
-        lat_color = colors["latency"]
-
-        # Get copies of history data (thread-safe)
         with self._sparkline_lock:
             quality_history = list(self._quality_history)
             upload_history = list(self._upload_history)
@@ -1020,76 +1165,54 @@ class NetworkMonitorApp(rumps.App):
             latency_history = list(self._latency_history)
             dns_history = list(self._dns_history)
 
-        # Quality sparkline (0-100 scale)
-        quality_cur = self._quality_score if self._quality_score is not None else 0
-        quality_title = f"  ◆  {quality_cur}%"
-        if quality_history:
-            quality_img = self._sparkline_renderer.create_image(quality_history, quality_color)
-            self._set_menu_image(self.menu_graph_quality, quality_img, quality_title)
-        else:
-            self.menu_graph_quality.title = quality_title
+        sparklines = [
+            (
+                self.menu_graph_quality,
+                quality_history,
+                colors["quality"],
+                f"  ◆  {self._quality_score if self._quality_score is not None else 0}%",
+            ),
+            (
+                self.menu_graph_upload,
+                upload_history,
+                colors["upload"],
+                f"  ↑  {format_bytes(stats.upload_speed if stats else 0, True)}",
+            ),
+            (
+                self.menu_graph_download,
+                download_history,
+                colors["download"],
+                f"  ↓  {format_bytes(stats.download_speed if stats else 0, True)}",
+            ),
+            (
+                self.menu_graph_total,
+                total_history,
+                colors["total"],
+                f"  ⇅  {format_bytes((stats.upload_speed + stats.download_speed) if stats else 0, True)}",
+            ),
+            (
+                self.menu_graph_latency,
+                latency_history,
+                colors["latency"],
+                f"  ●  {(self._current_latency or 0):.0f}ms",
+            ),
+            (
+                self.menu_graph_dns,
+                dns_history,
+                colors["latency"],
+                f"  🔍  {(self._current_dns_latency or 0):.0f}ms",
+            ),
+        ]
 
-        # Upload sparkline
-        up_cur = stats.upload_speed if stats else 0
-        up_title = f"  ↑  {format_bytes(up_cur, True)}"
-        if upload_history:
-            up_img = self._sparkline_renderer.create_image(upload_history, up_color)
-            self._set_menu_image(self.menu_graph_upload, up_img, up_title)
-        else:
-            self.menu_graph_upload.title = up_title
-
-        # Download sparkline
-        down_cur = stats.download_speed if stats else 0
-        down_title = f"  ↓  {format_bytes(down_cur, True)}"
-        if download_history:
-            down_img = self._sparkline_renderer.create_image(download_history, down_color)
-            self._set_menu_image(self.menu_graph_download, down_img, down_title)
-        else:
-            self.menu_graph_download.title = down_title
-
-        # Total (combined) sparkline
-        total_cur = (stats.upload_speed + stats.download_speed) if stats else 0
-        total_title = f"  ⇅  {format_bytes(total_cur, True)}"
-        total_color = colors["total"]  # Use appearance-aware color
-        if total_history:
-            total_img = self._sparkline_renderer.create_image(total_history, total_color)
-            self._set_menu_image(self.menu_graph_total, total_img, total_title)
-        else:
-            self.menu_graph_total.title = total_title
-
-        # Latency sparkline
-        lat_cur = self._current_latency if self._current_latency else 0
-        lat_title = f"  ●  {lat_cur:.0f}ms"
-        if latency_history:
-            lat_img = self._sparkline_renderer.create_image(latency_history, lat_color)
-            self._set_menu_image(self.menu_graph_latency, lat_img, lat_title)
-        else:
-            self.menu_graph_latency.title = lat_title
-
-        # DNS sparkline
-        dns_color = colors["latency"]  # Use same color as latency (appearance-aware)
-        dns_cur = self._current_dns_latency if self._current_dns_latency else 0
-        dns_title = f"  🔍  {dns_cur:.0f}ms"
-        if dns_history:
-            dns_img = self._sparkline_renderer.create_image(dns_history, dns_color)
-            self._set_menu_image(self.menu_graph_dns, dns_img, dns_title)
-        else:
-            self.menu_graph_dns.title = dns_title
+        for menu_item, history, color, title in sparklines:
+            if history:
+                png_bytes = self._sparkline_renderer.create_png_bytes(history, color)
+                self._set_menu_image_bytes(menu_item, png_bytes, title)
+            else:
+                menu_item.title = title
 
     def _update_latency(self):
-        """Update latency display."""
-        import time as time_module
-
-        current_time = time_module.time()
-
-        # Only check latency periodically (it's slow)
-        if current_time - self._last_latency_check >= self._latency_check_interval:
-            self._last_latency_check = current_time
-
-            # Run ping in background to avoid blocking
-            threading.Thread(target=self._check_latency_background, daemon=True).start()
-
-        # Update display with current value
+        """Update latency display (background polling is dispatched from _dispatch_background_checks)."""
         if self._current_latency is not None:
             latency = self._current_latency
 
@@ -1135,23 +1258,10 @@ class NetworkMonitorApp(rumps.App):
             logger.error(f"Latency check error: {e}", exc_info=True)
 
     def _update_vpn_status(self):
-        """Update VPN status detection.
+        """VPN status is updated off the main thread in _check_vpn_background."""
+        pass
 
-        VPN status is shown inline with connection info.
-        """
-        import time as time_module
-
-        current_time = time_module.time()
-
-        # Only check VPN periodically
-        if current_time - self._last_vpn_check >= self._vpn_check_interval:
-            self._last_vpn_check = current_time
-
-            vpn_active, vpn_name = self.connection_detector.detect_vpn()
-            self._vpn_active = vpn_active
-            self._vpn_name = vpn_name if vpn_active else None
-
-    def _update_quality_score(self):
+    def _update_quality_score(self, update_menu: bool = True):
         """Update network quality score.
 
         Score is 0-100 based on:
@@ -1160,7 +1270,8 @@ class NetworkMonitorApp(rumps.App):
         - Speed consistency (30% weight): Based on activity samples
         """
         if not self._latency_samples:
-            self.menu_quality.title = "Quality: ⏳ measuring..."
+            if update_menu:
+                self.menu_quality.title = "Quality: ⏳ measuring..."
             self._quality_score = None
             return
 
@@ -1237,7 +1348,8 @@ class NetworkMonitorApp(rumps.App):
             indicator = "🔴"
             label = "Poor"
 
-        self.menu_quality.title = f"Quality: {indicator} {self._quality_score}% ({label})"
+        if update_menu:
+            self.menu_quality.title = f"Quality: {indicator} {self._quality_score}% ({label})"
 
         # Check for quality drops and log as event
         jitter = None
@@ -1255,7 +1367,12 @@ class NetworkMonitorApp(rumps.App):
             logger.warning(f"Quality drop detected: {quality_issue.description}")
 
     def _update_history(self):
-        """Update history section with weekly and monthly stats."""
+        """Update history section with weekly and monthly stats (throttled to every 30s)."""
+        now = time.time()
+        if now - self._last_history_refresh < 30.0:
+            return
+        self._last_history_refresh = now
+
         # Get weekly totals
         weekly = self.store.get_weekly_totals()
         week_total = weekly["sent"] + weekly["recv"]
@@ -1380,9 +1497,13 @@ class NetworkMonitorApp(rumps.App):
             pass  # Menu not properly initialized yet
 
     def _update_top_apps(self):
-        """Update apps menu - dynamically populated, no empty slots."""
+        """Update apps menu from background-cached data; only rebuild when changed."""
         try:
-            top_processes = self.traffic_monitor.get_top_processes(limit=15)
+            top_processes = self._cached_top_apps
+            sig = tuple((name, conns) for name, _, _, conns in top_processes)
+            if self._submenu_signatures.get("apps") == sig:
+                return
+            self._submenu_signatures["apps"] = sig
 
             # Clear and rebuild menu
             self._safe_menu_clear(self.menu_apps)
@@ -1409,12 +1530,16 @@ class NetworkMonitorApp(rumps.App):
             self.menu_apps.add(rumps.MenuItem(f"Error: {str(e)[:25]}"))
 
     def _update_events(self):
-        """Update recent events menu - dynamically populated.
+        """Update recent events menu - dynamically populated only when changed.
 
         Quality drop events are clickable to show troubleshooting info.
         """
 
         issues = self.issue_detector.get_recent_issues(10)
+        sig = tuple((i.timestamp.isoformat(), i.issue_type.value, i.description) for i in issues)
+        if self._submenu_signatures.get("events") == sig:
+            return
+        self._submenu_signatures["events"] = sig
 
         self._safe_menu_clear(self.menu_events)
 
@@ -1537,6 +1662,14 @@ class NetworkMonitorApp(rumps.App):
         visible_macs = [d.mac_address for d in online_devices[:5]]
         self.network_scanner.request_resolution_for_visible(visible_macs)
 
+        sig = (
+            tuple((d.mac_address, d.ip_address, d.custom_name, d.display_name, d.os_hint) for d in online_devices),
+            tuple((d.mac_address, d.ip_address, d.custom_name, d.display_name) for d in offline_devices),
+        )
+        if self._submenu_signatures.get("devices") == sig:
+            return
+        self._submenu_signatures["devices"] = sig
+
         # Clear and rebuild menu
         self._safe_menu_clear(self.menu_devices)
 
@@ -1566,9 +1699,13 @@ class NetworkMonitorApp(rumps.App):
             self.menu_devices.add(offline_menu)
 
     def _update_connection_locations(self):
-        """Update connection locations menu with geolocation data."""
+        """Update connection locations menu from background-cached geolocation data."""
         try:
-            countries_per_app = self._deps.connection_tracker.get_countries_per_app()
+            countries_per_app = self._cached_locations
+            sig = tuple((k, tuple(v)) for k, v in sorted(countries_per_app.items()))
+            if self._submenu_signatures.get("locations") == sig:
+                return
+            self._submenu_signatures["locations"] = sig
 
             self._safe_menu_clear(self.menu_locations)
 
@@ -2735,7 +2872,7 @@ Built with Python, rumps, PIL, and matplotlib.
                 }
             with open(history_file, "w") as f:
                 json.dump(data, f)
-            logger.info(
+            logger.debug(
                 f"Saved sparkline history: {len(data['quality'])} quality, {len(data['upload'])} upload samples to {history_file}"
             )
         except Exception as e:
@@ -2749,9 +2886,9 @@ Built with Python, rumps, PIL, and matplotlib.
         if hasattr(self, "_controller"):
             self._controller.stop()
         # Stop timers
-        if hasattr(self, "_sparkline_timer"):
+        if getattr(self, "_sparkline_timer", None):
             self._sparkline_timer.stop()
-        if hasattr(self, "_update_timer"):
+        if getattr(self, "_update_timer", None):
             self._update_timer.stop()
         self._save_sparkline_history()  # Persist graph history
         self.store.flush()  # Save any pending data

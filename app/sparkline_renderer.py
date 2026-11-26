@@ -5,10 +5,10 @@ with matplotlib fallback.
 """
 
 import hashlib
+import io
 import tempfile
-import time
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 from config import STORAGE, get_logger
 
@@ -105,33 +105,32 @@ class SparklineRenderer:
             logger.debug(f"PIL sparkline failed, falling back to matplotlib: {e}")
             return self._create_matplotlib(values, color, width, height)
 
-    def _create_pil(
+    def _render_pil_image(
         self, values: List[float], color: str = "#007AFF", width: int = 120, height: int = 16
-    ) -> str:
-        """Create sparkline using PIL/Pillow - fast and lightweight with anti-aliasing."""
+    ):
+        """Render a sparkline PIL Image in memory (2x supersampled anti-aliasing)."""
         from PIL import Image, ImageDraw
 
-        # Draw at 3x resolution for smooth anti-aliasing
-        scale = 3
+        if not values or len(values) < 2:
+            values = [0, 0]
+
+        scale = 2
         scaled_width = width * scale
         scaled_height = height * scale
 
-        # Create image with transparency at higher resolution
         img = Image.new("RGBA", (scaled_width, scaled_height), (0, 0, 0, 0))
         draw = ImageDraw.Draw(img)
 
-        # Convert hex color to RGB tuple
-        if color.startswith("#"):
+        if color.startswith("#") and len(color) == 7:
             r = int(color[1:3], 16)
             g = int(color[3:5], 16)
             b = int(color[5:7], 16)
         else:
-            r, g, b = 0, 122, 255  # Default blue
+            r, g, b = 0, 122, 255
 
         line_color = (r, g, b, 255)
-        fill_color = (r, g, b, 50)  # Semi-transparent fill
+        fill_color = (r, g, b, 50)
 
-        # Calculate scaling
         padding_x = 4 * scale
         padding_y = 3 * scale
         graph_width = scaled_width - 2 * padding_x
@@ -141,37 +140,28 @@ class SparklineRenderer:
         min_val = min(values)
         val_range = max_val - min_val if max_val != min_val else 1
 
-        # Interpolate more points for smoother curves
         interpolated = []
         for i in range(len(values) - 1):
             v1, v2 = values[i], values[i + 1]
-            # Add original point and 2 interpolated points between each pair
             interpolated.append(v1)
-            interpolated.append(v1 + (v2 - v1) * 0.33)
-            interpolated.append(v1 + (v2 - v1) * 0.67)
+            interpolated.append(v1 + (v2 - v1) * 0.5)
         interpolated.append(values[-1])
 
-        # Calculate points from interpolated values
         points = []
+        denom = max(1, len(interpolated) - 1)
         for i, val in enumerate(interpolated):
-            x = padding_x + (i / (len(interpolated) - 1)) * graph_width
-            # Normalize value to graph height (invert Y since PIL coords are top-down)
+            x = padding_x + (i / denom) * graph_width
             normalized = (val - min_val) / val_range
             y = padding_y + (1 - normalized) * graph_height
             points.append((x, y))
 
-        # Draw filled area under the line
         if len(points) >= 2:
             fill_points = list(points)
             fill_points.append((points[-1][0], scaled_height - padding_y))
             fill_points.append((points[0][0], scaled_height - padding_y))
             draw.polygon(fill_points, fill=fill_color)
-
-        # Draw the line with thicker width (scales down nicely)
-        if len(points) >= 2:
             draw.line(points, fill=line_color, width=2 * scale)
 
-        # Draw last point marker (small circle)
         if points:
             last_x, last_y = points[-1]
             r_dot = 3 * scale
@@ -179,15 +169,28 @@ class SparklineRenderer:
                 [last_x - r_dot, last_y - r_dot, last_x + r_dot, last_y + r_dot], fill=line_color
             )
 
-        # Resize down to final size with high-quality anti-aliasing
-        img = img.resize((width, height), Image.Resampling.LANCZOS)
+        return img.resize((width, height), Image.Resampling.LANCZOS)
 
-        # Save to temp file with timestamp for uniqueness (forces NSImage reload)
-        # Use timestamp in filename to bypass macOS image caching
-        # This ensures each update creates a new file that NSImage will load fresh
-        timestamp = int(time.time() * 1000) % 100000  # Last 5 digits of milliseconds
-        img_path = self._temp_dir / f'spark_{color.replace("#", "")}_{timestamp}.png'
+    def create_png_bytes(
+        self, values: List[float], color: str = "#007AFF", width: int = 120, height: int = 16
+    ) -> Optional[bytes]:
+        """Generate a sparkline PNG in memory (zero disk I/O, no temp files)."""
+        try:
+            img = self._render_pil_image(values, color, width, height)
+            buf = io.BytesIO()
+            img.save(buf, format="PNG")
+            return buf.getvalue()
+        except Exception as e:
+            logger.debug(f"In-memory PIL sparkline failed: {e}")
+            return None
 
+    def _create_pil(
+        self, values: List[float], color: str = "#007AFF", width: int = 120, height: int = 16
+    ) -> str:
+        """Create sparkline using PIL/Pillow and write to a deterministic temp file."""
+        img = self._render_pil_image(values, color, width, height)
+        self._temp_dir.mkdir(exist_ok=True)
+        img_path = self._temp_dir / f'spark_{color.replace("#", "")}.png'
         img.save(str(img_path), "PNG")
         return str(img_path)
 
