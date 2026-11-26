@@ -1748,6 +1748,7 @@ class NetworkMonitorApp(rumps.App):
 
             # Get country names
             geoloc = self._deps.geolocation_service
+            added_count = 0
 
             for app_name, country_codes in sorted(
                 countries_per_app.items(), key=lambda x: len(x[1]), reverse=True
@@ -1767,12 +1768,13 @@ class NetworkMonitorApp(rumps.App):
 
                 title = f"{app_name}: {', '.join(country_display)}"
                 self.menu_locations.add(rumps.MenuItem(title))
+                added_count += 1
 
-            if not self.menu_locations._menu or len(self.menu_locations._menu) == 0:
+            if added_count == 0:
                 self.menu_locations.title = "Connection Locations"
                 self.menu_locations.add(rumps.MenuItem("No external connections"))
             else:
-                self.menu_locations.title = f"Connection Locations ({len(countries_per_app)} apps)"
+                self.menu_locations.title = f"Connection Locations ({added_count} apps)"
         except Exception as e:
             logger.error(f"Error updating connection locations: {e}", exc_info=True)
             self._safe_menu_clear(self.menu_locations)
